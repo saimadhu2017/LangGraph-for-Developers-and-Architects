@@ -16,7 +16,7 @@
 |---|--------|----------|--------|-------------|
 | — | Prelude | — | ⏭️ Skipped by choice | — |
 | 1 | The Rise of Agentic Workflows and the Emergence of LangGraph | 2h 15m | ✅ Done | 01-module1-rise-of-agentic-workflows.md |
-| 2 | LangGraph Architecture and Ecosystem | 45m | ⬜ Not started | See sub-topics below |
+| 2 | LangGraph Architecture and Ecosystem | 45m | ✅ Done | 02a-langgraph-in-the-langchain-ecosystem.md · 02b-langgraph-architecture.md |
 | 3 | Getting Started with LangGraph: Building Your First AI Workflow Graph | 30m | ⬜ Not started | See sub-topics below |
 | 4 | Prebuilt Agents in LangGraph | 1h | ⬜ Not started | See sub-topics below |
 | 5 | Designing Custom Workflows with LangGraph | 4h 20m | ⬜ Not started | See sub-topics below |
@@ -45,8 +45,8 @@
 
 | Sub-Topic | Duration | Status |
 |-----------|----------|--------|
-| LangGraph in the LangChain Ecosystem | 15m | ⬜ Not started |
-| LangGraph Architecture | 30m | ⬜ Not started |
+| LangGraph in the LangChain Ecosystem | 15m | ✅ Done |
+| LangGraph Architecture | 30m | ✅ Done |
 
 ### Module 3 Sub-Topics — Getting Started with LangGraph: Building Your First AI Workflow Graph
 *30m · 1 Web Module*
@@ -89,7 +89,9 @@
 ---
 
 ## Current Topic
-**Module 1 complete.** Next: **Module 2 — LangGraph Architecture and Ecosystem** (45m). Expect heavy overlap with Module 1's "vs LangChain" material — compress against the Concepts log in `_context.md` instead of re-teaching.
+**Modules 1–2 complete — the conceptual frame is fully built.** Next: **Module 3 — Getting Started with LangGraph: Building Your First AI Workflow Graph** (30m).
+
+Module 3 is the hands-on turn: **the running project gets named and scaffolded here**, and the first real code in the course lands. Nodes, edges, and state were already taught in depth in `02b` — don't re-explain them, point back and write code. The "What are Agents?" sub-topic restates Module 1; compress it and spend the time on the graph.
 
 ---
 
@@ -106,13 +108,36 @@ All 4 sub-topics merged into `01-module1-rise-of-agentic-workflows.md` (the sour
 - Graphs can loop back; pipelines structurally cannot
 - LangGraph vs LangChain (orchestrates, doesn't replace) and vs CrewAI/AutoGen/Haystack (flagged as low-value/stale-prone)
 
+### Module 2 — LangGraph Architecture and Ecosystem
+Split into two lessons, since the sub-topics are genuinely distinct (positioning vs. internals).
+
+**`02a-langgraph-in-the-langchain-ecosystem.md`**
+- **LangGraph is standalone, not a LangChain plugin** — a node is just `state -> partial update`; zero LangChain imports required
+- …but orchestration is *all* it does, so in practice: **LangChain = inside a node, LangGraph = which node runs next**. An LCEL chain becomes the *body* of a node that can now loop, branch, pause, resume
+- Three-tool layering: LangChain → a demo · LangGraph → a system · LangSmith → keeps you honest
+- Full comparison grid; **state** and **loops** called out as *category* differences, not feature differences
+- Two source claims corrected honestly: perf ("no overhead" → real cost is checkpointer I/O, not the graph) and deployment ("requires LangSmith" → it's a Python library; LangGraph Platform is convenience, self-hosting is supported)
+
+**`02b-langgraph-architecture.md`** — the substantial one
+- Running example: **Anita + Karthik**'s rigid SaaS support bot; their 4 requirements mapped onto the architecture at the end
+- **Why graphs, 5 reasons** — and reason 3 (reliability/recoverability) named as the one that actually justifies the architecture: the runtime always knows *where / what node / what state*, and those three facts **are** a checkpoint
+- **"Deterministic transitions despite non-deterministic LLMs"** = randomness is *contained inside nodes*; the skeleton stays fixed and auditable
+- **Three layers — you only write in layer A:** Graph Definition (`StateGraph`) · Execution (Pregel) · State Management (channels + reducers)
+- Conditional edge = router fn returning the next node's *name* — **flagged as where Module 1's "partial control flow definition" physically lives**
+- **Pregel super-steps taught properly** (the source just name-drops Pregel): PLAN → EXECUTE-in-parallel → UPDATE-at-barrier. Five LangGraph features derived from that single design choice, incl. why reducers are *necessary* and why checkpoints are per-super-step
+- Channels + reducers, default = **overwrite**; "agent lost its memory" bugs are a missing reducer; unreduced parallel writes **raise**
+- Short-term (checkpointer, thread) vs long-term (store, cross-session) memory
+- Graph API vs **Functional API** (`@entrypoint`/`@task`) as two front-ends to one engine
+- `StateGraph` vs `AgentExecutor` — sets up Module 4's "here's what was actually running"
+- `networkx` snippet used only as a drawing aid, to land: **a chain is a degenerate graph**; add one backward edge and you have the whole paradigm shift
+
 ---
 
 ## Running Project: TBD — named and scaffolded at Module 3
 
 Fresh project, built graph-first (the LangChain course's Developer Documentation Assistant is **not** carried over — LangGraph's state/graph model is different enough that porting it would fight the material).
 
-Modules 1–2 are conceptual/architectural, so the first real code lands in **Module 3 — Building Your First AI Workflow Graph**. Until then lessons carry illustrative snippets only, and `_context.md` keeps an empty project block.
+Modules 1–2 are conceptual/architectural and are now complete, so the first real code lands in **Module 3 — Building Your First AI Workflow Graph** (up next). Modules 1–2 carried illustrative snippets only, and `_context.md` still holds an empty project block.
 
 The project grows one version per topic (v0.1 → v0.2 → …), and its full current source lives in `start learning/_context.md`. Each lesson ends with the complete updated file so any single lesson is self-contained.
 
