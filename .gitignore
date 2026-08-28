@@ -1,0 +1,22 @@
+# Secrets — never commit
+.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# LangGraph / LangChain local artifacts
+*.sqlite
+*.db
+checkpoints/
+faiss_index/
+chroma_db/
+
+# OS
+Thumbs.db
+.DS_Store
