@@ -17,7 +17,7 @@
 | — | Prelude | — | ⏭️ Skipped by choice | — |
 | 1 | The Rise of Agentic Workflows and the Emergence of LangGraph | 2h 15m | ✅ Done | 01-module1-rise-of-agentic-workflows.md |
 | 2 | LangGraph Architecture and Ecosystem | 45m | ✅ Done | 02a-langgraph-in-the-langchain-ecosystem.md · 02b-langgraph-architecture.md |
-| 3 | Getting Started with LangGraph: Building Your First AI Workflow Graph | 30m | ⬜ Not started | See sub-topics below |
+| 3 | Getting Started with LangGraph: Building Your First AI Workflow Graph | 30m | ✅ Done | 03-getting-started-first-workflow-graph.md |
 | 4 | Prebuilt Agents in LangGraph | 1h | ⬜ Not started | See sub-topics below |
 | 5 | Designing Custom Workflows with LangGraph | 4h 20m | ⬜ Not started | See sub-topics below |
 | 6 | Dynamic AI Graphs: Combining Subgraphs and Streaming | 1h 30m | ⬜ Not started | See sub-topics below |
@@ -53,7 +53,7 @@
 
 | Sub-Topic | Duration | Status |
 |-----------|----------|--------|
-| What are Agents? | 10m | ⬜ Not started |
+| What are Agents? | 10m | ✅ Done |
 
 ### Module 4 Sub-Topics — Prebuilt Agents in LangGraph
 *1h · 3 Web Modules*
@@ -89,9 +89,9 @@
 ---
 
 ## Current Topic
-**Modules 1–2 complete — the conceptual frame is fully built.** Next: **Module 3 — Getting Started with LangGraph: Building Your First AI Workflow Graph** (30m).
+**Modules 1–3 complete — concepts built, first graph running.** Next: **Module 4 — Prebuilt Agents in LangGraph** (1h): Hooks · `langgraph-prebuilt` · `langgraph-supervisor`.
 
-Module 3 is the hands-on turn: **the running project gets named and scaffolded here**, and the first real code in the course lands. Nodes, edges, and state were already taught in depth in `02b` — don't re-explain them, point back and write code. The "What are Agents?" sub-topic restates Module 1; compress it and spend the time on the graph.
+Teach Module 4 as **"here's what was actually running"** — the learner used `create_react_agent` as a black box in the LangChain course and has now hand-wired a `StateGraph`, so the prebuilt agent is the same four node roles (planner/retriever/executor/evaluator) looped for you. **Hooks is the sub-topic to spend the time on**: Module 3's anatomy table left "Hooks & Transitions" as the only row with no LangChain equivalent and explicitly promised Module 4 would fill it in. Project reaches **v0.2** — same Research Assistant job rebuilt with a prebuilt agent + hooks, side by side with hand-built v0.1, so "less code vs. less control" is concrete.
 
 ---
 
@@ -131,15 +131,39 @@ Split into two lessons, since the sub-topics are genuinely distinct (positioning
 - `StateGraph` vs `AgentExecutor` — sets up Module 4's "here's what was actually running"
 - `networkx` snippet used only as a drawing aid, to land: **a chain is a degenerate graph**; add one backward edge and you have the whole paradigm shift
 
+### Module 3 — Getting Started with LangGraph: Building Your First AI Workflow Graph
+`03-getting-started-first-workflow-graph.md` — first code in the course; project named and scaffolded.
+- "What are Agents?" compressed hard against Module 1. **`Agent = LLM + Tools + Reasoning Loop + State`**, each term with what breaks if dropped
+- **Exit condition is the framing**: a plain LLM call stops when the *text ran out*; an agent stops when the *goal was met* — multi-step reasoning, error recovery, tool calls, long-running work and autonomy are one feature seen from four angles
+- Six characteristics table given a **cost column**, then the point landed: that column is why LangGraph exists
+- **The payload: the Anatomy → LangGraph mapping table.** LLM Core / Prompt Template → inside a node (these are LangChain's half) · Memory Module → state channel + checkpointer · Toolset → tool nodes · State → the `TypedDict` · **Hooks & Transitions → edges; the only row with no LangChain equivalent, which is why it gets Module 4**
+- Four node roles named: **planner / retriever / executor / evaluator**
+- **Source corrected honestly:** the course's Research Assistant diagram has every arrow pointing down — it's a chain, not an agent. Drew the `evaluate → search` backward edge as the target
+- Hands-on in two steps: a no-LLM "hello graph" for the machinery (partial updates · nodes never call each other · `START`/`END` are real nodes · `compile()` validates), then project v0.1
+- LCEL contrast: `a | b` **fuses** "what runs" with "what runs next"; `add_node` + `add_edge` **split** them — two lines now buys cycles later
+- `graph.get_graph().draw_mermaid()` — a diagram that can't drift from the code, zero extra deps
+- Use cases taught by graph shape: five domains, ~four shapes — **route / loop / delegate / remember**
+
 ---
 
-## Running Project: TBD — named and scaffolded at Module 3
+## Running Project: Research Assistant — `start learning/research_assistant/`
 
 Fresh project, built graph-first (the LangChain course's Developer Documentation Assistant is **not** carried over — LangGraph's state/graph model is different enough that porting it would fight the material).
 
-Modules 1–2 are conceptual/architectural and are now complete, so the first real code lands in **Module 3 — Building Your First AI Workflow Graph** (up next). Modules 1–2 carried illustrative snippets only, and `_context.md` still holds an empty project block.
+Named and scaffolded at Module 3. Chosen because it's the smallest project that genuinely needs *every* mechanism in the syllabus: a loop (re-search on weak sourcing), a tool (search), accumulating state (sources), a checkpoint (searches are slow), an interrupt (human approves citations).
 
-The project grows one version per topic (v0.1 → v0.2 → …), and its full current source lives in `start learning/_context.md`. Each lesson ends with the complete updated file so any single lesson is self-contained.
+| Version | Module | Adds |
+|---|---|---|
+| **v0.1** ✅ | 3 | Linear 4-node graph (`understand → search → summarize → evaluate`), typed state with an `operator.add` reducer on `sources`, one real LLM call in an LCEL chain inside a node |
+| v0.2 | 4 | Prebuilt agent + hooks — the same job the black-box way, side by side |
+| v0.3+ | 5 | The backward edge, persistence, time travel, real tools, interrupts, memory |
+| v0.4+ | 6 | Subgraphs and streaming |
+
+Files are **real on disk**, not lesson-only. Run: `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
+
+**Deliberate v0.1 debts — do not "fix" them early, each is a later lesson's payload:** `evaluate` computes a verdict nobody acts on (→ Module 5 `add_conditional_edges`) · `sources` already carries its reducer a module before anything loops · `corpus.py` is a keyword-overlap stub standing in for a retriever (→ Module 5 *Tool*) · no checkpointer on `compile()` yet (→ Module 5 *Persistence*).
+
+The project grows one version per topic, and its full current source lives in `start learning/_context.md`. Each lesson ends with the complete updated source so any single lesson is self-contained.
 
 ---
 
