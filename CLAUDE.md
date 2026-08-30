@@ -61,7 +61,7 @@
 | Sub-Topic | Duration | Status |
 |-----------|----------|--------|
 | Hooks | 30m | ✅ Done |
-| langgraph-prebuilt | 15m | ⬜ Not started |
+| langgraph-prebuilt | 15m | ✅ Done |
 | langgraph-supervisor | 15m | ⬜ Not started |
 
 ### Module 5 Sub-Topics — Designing Custom Workflows with LangGraph
@@ -89,9 +89,7 @@
 ---
 
 ## Current Topic
-**Module 4 in progress — Hooks done.** Next: **Module 4.2 — langgraph-prebuilt** (15m): open the `create_react_agent` black box, use the real hook kwargs API, project reaches v0.2 (prebuilt agent side-by-side with hand-built v0.1+hooks).
-
-Teach as **"here's what was actually running"** — the learner used `create_react_agent` as a black box in the LangChain course and has now hand-wired a `StateGraph`, so the prebuilt agent is the same four node roles (planner/retriever/executor/evaluator) looped for you. The hook kwargs (`pre_model_hook`, `post_model_hook`) are the API surface that pays off what Pattern 1 (wrapper) demonstrated in 4.1. Project reaches **v0.2** — same Research Assistant job rebuilt with a prebuilt agent + hooks, side by side with hand-built v0.1+hooks, so "less code vs. less control" is concrete.
+**Module 4 in progress — Hooks + langgraph-prebuilt done.** Next: **Module 4.3 — langgraph-supervisor** (15m): hierarchical multi-agent. A supervisor LLM routes work to specialized sub-agents. Maps onto the "delegate" graph shape from Module 3's use-case table. Project stays at v0.2 for this sub-topic — supervisor is a new graph shape, not a Research Assistant extension.
 
 ---
 

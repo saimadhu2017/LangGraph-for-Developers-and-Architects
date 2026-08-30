@@ -20,7 +20,7 @@ _Named and scaffolded at Module 3. Fresh build, graph-first — the LangChain co
 
 **Version roadmap:** v0.1 Module 3 (linear 4-node graph) → v0.2 Module 4 (prebuilt agent + hooks) → v0.3+ Module 5 (backward edge, persistence, time travel, interrupts, memory) → v0.4+ Module 6 (subgraphs, streaming).
 
-### Current State (v0.1 — linear, runs end-to-end)
+### Current State (v0.2 — v0.1+hooks + prebuilt agent, both run from main.py)
 
 Files are **real on disk**, not just in the lesson. `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
 
@@ -34,9 +34,10 @@ start learning/
     ├── state.py
     ├── corpus.py
     ├── nodes.py
-    ├── hooks.py              # NEW (Module 4.1) — pre_summarize, post_summarize, wrap_with_hooks
+    ├── hooks.py              # Module 4.1 — pre_summarize, post_summarize, wrap_with_hooks
+    ├── agent.py              # NEW (Module 4.2) — create_react_agent v0.2
     ├── graph.py
-    └── main.py
+    └── main.py               # Updated (Module 4.2) — runs v0.1 and v0.2 side-by-side
 ```
 
 **`research_assistant/state.py`**
@@ -247,30 +248,112 @@ def build_graph():
     return builder.compile()
 ```
 
-**`research_assistant/main.py`**
+**`research_assistant/agent.py`** (added Module 4.2)
 ```python
+import os
+
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
+from langchain_core.tools import tool
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+from langgraph.prebuilt import create_react_agent
+
+from .corpus import search_corpus
+
+load_dotenv()
+
+MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+
+
+def _get_model():
+    endpoint = HuggingFaceEndpoint(
+        repo_id=MODEL,
+        huggingfacehub_api_token=os.environ["HUGGINGFACEHUB_API_TOKEN"],
+        max_new_tokens=512,
+        temperature=0.3,
+    )
+    return ChatHuggingFace(llm=endpoint)
+
+
+@tool
+def search_docs(query: str) -> str:
+    """Search the research corpus for documents matching the query."""
+    keywords = query.lower().split()
+    results = search_corpus(keywords)
+    if not results:
+        return "No relevant documents found."
+    return "\n\n".join(f"[{r['title']}]\n{r['text']}" for r in results)
+
+
+def _pre_hook(state: dict) -> dict | None:
+    messages = state.get("messages", [])
+    print(f"\n[PRE-HOOK]  agent step — {len(messages)} message(s) in state")
+    return None
+
+
+def _post_hook(state: dict) -> dict | None:
+    messages = state.get("messages", [])
+    if messages:
+        last = messages[-1]
+        content = getattr(last, "content", "")
+        print(f"[POST-HOOK] {type(last).__name__} — {len(str(content))} chars")
+    return None
+
+
+def build_agent():
+    return create_react_agent(
+        model=_get_model(),
+        tools=[search_docs],
+        pre_model_hook=_pre_hook,
+        post_model_hook=_post_hook,
+    )
+
+
+def run(question: str) -> str:
+    agent = build_agent()
+    result = agent.invoke({
+        "messages": [HumanMessage(content=(
+            "Research the following question and provide a detailed answer with citations:\n\n"
+            + question
+        ))]
+    })
+    return result["messages"][-1].content
+```
+
+**`research_assistant/main.py`** (updated Module 4.2 — runs both v0.1 and v0.2)
+```python
+from research_assistant import agent as v2
 from research_assistant.graph import build_graph
 
 QUESTION = "Explain LangGraph architecture using 3 reliable sources."
 
 
-def main():
+def run_v1():
+    print("=" * 60)
+    print("v0.1 — Custom StateGraph (4 explicit nodes + hooks)")
+    print("=" * 60)
     graph = build_graph()
-
-    # The structure, as text. No extra dependencies needed.
     print(graph.get_graph().draw_mermaid())
-
-    final = graph.invoke({
-        "question": QUESTION,
-        "sources": [],          # reducer channels: seed them explicitly
-    })
-
+    final = graph.invoke({"question": QUESTION, "sources": []})
     print("\nKEYWORDS:", final["keywords"])
     print("\nSOURCES:")
     for s in final["sources"]:
         print("  -", s["title"])
     print("\nSUMMARY:\n", final["summary"])
     print("\nVERDICT:", final["verdict"])
+
+
+def run_v2():
+    print("\n" + "=" * 60)
+    print("v0.2 — Prebuilt create_react_agent (2-node ReAct loop + hooks)")
+    print("=" * 60)
+    answer = v2.run(QUESTION)
+    print("\nANSWER:\n", answer)
+
+
+def main():
+    run_v1()
+    run_v2()
 
 
 if __name__ == "__main__":
@@ -284,6 +367,8 @@ if __name__ == "__main__":
 - No checkpointer on `compile()` yet — added in Module 5's *Persistence* sub-topic.
 
 ## Concepts Covered (cont.)
+- Module 4.2 > langgraph-prebuilt — **opened the `create_react_agent` black box**. Package contains: `create_react_agent` (ReAct tool-calling), `ToolNode`, `tools_condition`, `ValidationNode`, `HumanInterrupt`/`HumanResponse`, plus higher-level packages (`langgraph-supervisor`, Trustcall, LangMem, LangGraph Swarm — named, not drilled). **`create_react_agent` internals = a two-node `StateGraph`**: `agent` node (LLM with `.bind_tools()`, returns `{"messages": [AIMessage]}`) and `tools` node (`ToolNode` — reads `tool_calls` from last AIMessage, runs them in parallel, returns `ToolMessage` list). Router: `tools_condition` (prebuilt conditional edge function: `tool_calls` present → `"tools"`, else → `END`). Loop: `tools → agent`. State: **`MessagesState`** = `TypedDict` with `messages: Annotated[list[AnyMessage], add_messages]` — everything flows as messages (HumanMessage/AIMessage/ToolMessage). Contrast with our `ResearchState` (5 named keys, structured); message-based is better for conversational agents, structured state is better when nodes need precise typed fields. **`ToolNode`**: reads last AIMessage's `tool_calls`, runs each tool by name, parallel if multiple, wraps results in `ToolMessage` with matching `tool_call_id`, returns `{"messages": [...]}`. `handle_tool_errors=True` (default) catches tool exceptions and returns them as ToolMessage content so the LLM can reason about them. **Hook API difference from 4.1**: `create_react_agent` hooks return `None` (no change, cleaner than returning full state) or a partial update dict (LangGraph handles the merge). Contrast with 4.1 wrapper which returned full state because it was composing inside a plain Python function. Hooks fire every ReAct iteration. **`ValidationNode`**: validates tool-call arguments against Pydantic schemas before execution. On fail: injects a `ToolMessage` with the validation error back into history so LLM can self-correct and retry (self-correcting loop). On pass: forwards the original `AIMessage` to `ToolNode`. Declared with `@tool(args_schema=MySchema)` on the tool and `ValidationNode([MySchema])` as a graph node. **`HumanInterrupt`**: previewed — pauses graph at a node boundary, sends structured request to human, waits for `HumanResponse` before resuming; requires checkpointer; covered fully in Module 5 Interrupts. **v0.1 vs v0.2 trade-off**: v0.2 is less code (2 auto-wired nodes vs 4 explicit) but the ReAct loop is sealed — cannot insert approval gates between specific steps, cap per-tool retries, swap models mid-loop, or route on custom state keys without reconstructing the graph; v0.1 IS the loop, every edge is reachable. **vs LangChain's `create_tool_calling_agent`**: LangGraph = graph-based, ReAct loop, embeddable in supervisor, hooks/subgraphs/conditional edges; LangChain = chain-based, direct function call, simpler but not graph-embeddable. Use LangGraph for multi-step reasoning with loops; use LangChain for single-step structured output. **Project v0.2**: new `agent.py` (`create_react_agent` + `search_docs` tool + pre/post hooks using None-return API); `main.py` updated to run both v0.1 and v0.2 side-by-side.
+
 - Module 4.1 > Hooks — paid the anatomy-table debt: the "Hooks & Transitions" row had "edges" for transitions but left hooks unexplained. **Hooks = structured intercept points that fire around a node, in-process, in plain Python.** Two types: `pre_model_hook(state) -> state` runs BEFORE the node (can modify what the node sees); `post_model_hook(state) -> state` runs AFTER (for observation and side effects). Flow: `Input → [pre-hook] → Node (LLM/tool) → [post-hook] → Output`. Two wiring patterns: (1) **manual wrapper** for custom `StateGraph` — `wrap_with_hooks(node_fn, pre, post)` composes pre → node → post inside one registered function; pre-hook return IS used (modifies node input); post-hook return is ignored (observation-only in this pattern — wrapped returns `result`, not post-hook return); (2) **`create_react_agent` kwargs** — pass `pre_model_hook=` and `post_model_hook=` as kwargs, LangGraph calls them around every LLM step; post-hook CAN return a propagating partial update in this mode (covered next sub-topic). Source showed `graph.add_pre_model_hook()` / `builder.add_post_model_hook()` on `StateGraph` — these do not exist; hook kwargs belong to `create_react_agent`; source's actual working code used Pattern 1 correctly. Node.js/Express analogy: same shape (`req → middleware → handler → middleware → res`) but hooks operate on the full typed state dict, not HTTP objects. Project extended with `hooks.py` (`pre_summarize`, `post_summarize`, `wrap_with_hooks`) and `graph.py` updated to wrap the `summarize` node — `nodes.py` unchanged, which is the point. `hooks.py` detail: post-hook receives `{**state, **result}` (merged) so it can see the node's output; wrapper returns `result` so LangGraph reducer logic is unaffected.
 
 - Module 3 > Getting Started with LangGraph: Building Your First AI Workflow Graph — **first code in the course; project named + scaffolded here.** Sub-topic *"What are Agents?"* compressed hard against Module 1 (it restates agent-as-LLM-defined-control-flow). **`Agent = LLM + Tools + Reasoning Loop + State`** — taught as four load-bearing terms, each with what breaks if dropped (LLM→hard-coded script · Tools→chatbot that can only talk · Loop→one-shot answer · State→amnesia). **The exit-condition contrast is the core framing:** a plain LLM call stops when *the text ran out*; an agent stops when *the goal was met* — and that single difference is what multi-step reasoning / error recovery / tool calls / long-running work / autonomous decisions all reduce to (one feature, four angles, not five bullets). Loop beats: `Reason → Act → Observe → Loop`. Flight-booking example ("cheapest flight to Dubai next Friday, notify on WhatsApp") used to make it concrete — **steps "compare prices" and "select an option" are decisions made after seeing data that didn't exist at request time**, which is why they couldn't be pre-written. Six characteristics (Autonomy · Reasoning · Tool Use · Memory · Modularity · Adaptability) taught as a table with a **cost column added** (unpredictability · latency+tokens · real side effects · storage+context pressure · interface to maintain · behaviour drift) and the point landed that *the cost column is the reason LangGraph exists* — every mechanism in the course buys a benefit while capping its cost.
@@ -308,7 +393,7 @@ it to be **re-taught simply** — not summarized. Read this as: *you are re-auth
 - End each lesson with a **short self-check list** of questions the learner should be able to answer.
 
 ## Next Up
-**Module 4.2 — langgraph-prebuilt** (15m): `create_react_agent` — the black box opened. Same four node roles (planner/retriever/executor/evaluator) wired into a loop by someone else. Use the real `pre_model_hook`/`post_model_hook` kwargs API. Project reaches v0.2: rebuild the Research Assistant as a prebuilt agent side-by-side with the hand-built v0.1+hooks.
+**Module 4.3 — langgraph-supervisor** (15m): hierarchical multi-agent. A supervisor LLM routes work to specialized sub-agents. Maps onto the "delegate" graph shape named in Module 3's use-case table. Project does not grow to v0.3 yet — supervisor is a new graph shape, not an extension of the Research Assistant.
 
 Angle to take: the learner used `create_react_agent` as a **black box** in LangChain Module 8, and has now hand-built a `StateGraph` in Module 3. So teach Module 4 as **"here's what was actually running"** — the same four node roles (planner/retriever/executor/evaluator) wired into a loop by someone else — not as a new tool. 2b already set this up with the `StateGraph` vs `AgentExecutor` contrast (a fixed loop you can't insert approval gates into vs. the primitives that loop is built from); land the payoff, don't re-argue it.
 
