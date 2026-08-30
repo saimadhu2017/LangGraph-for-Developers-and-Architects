@@ -34,6 +34,7 @@ start learning/
     ├── state.py
     ├── corpus.py
     ├── nodes.py
+    ├── hooks.py              # NEW (Module 4.1) — pre_summarize, post_summarize, wrap_with_hooks
     ├── graph.py
     └── main.py
 ```
@@ -183,10 +184,46 @@ def evaluate(state: ResearchState) -> dict:
     return {"verdict": f"weak — only {count} source(s), wanted {MIN_SOURCES}"}
 ```
 
-**`research_assistant/graph.py`**
+**`research_assistant/hooks.py`** (added Module 4.1)
+```python
+from .state import ResearchState
+
+
+def pre_summarize(state: ResearchState) -> ResearchState:
+    print(f"\n[PRE-HOOK]  question : '{state['question']}'")
+    print(f"[PRE-HOOK]  keywords : {state.get('keywords', [])}")
+    print(f"[PRE-HOOK]  sources  : {len(state.get('sources', []))} doc(s)")
+    return state
+
+
+def post_summarize(state: ResearchState) -> ResearchState:
+    summary = state.get("summary", "")
+    print(f"[POST-HOOK] summary  : {len(summary)} chars generated")
+    return state
+
+
+def wrap_with_hooks(node_fn, pre=None, post=None):
+    """Returns a new node function that calls pre → node_fn → post.
+
+    The pre-hook's return is used as the node's input (so it can modify state).
+    The post-hook receives the merged state for observation; its return is ignored
+    in this pattern, so use it for logging and side effects only.
+    """
+    def wrapped(state: ResearchState) -> dict:
+        if pre:
+            state = pre(state)
+        result = node_fn(state)
+        if post:
+            post({**state, **result})
+        return result
+    return wrapped
+```
+
+**`research_assistant/graph.py`** (updated Module 4.1 — wraps summarize with hooks)
 ```python
 from langgraph.graph import END, START, StateGraph
 
+from .hooks import post_summarize, pre_summarize, wrap_with_hooks
 from .nodes import evaluate, search, summarize, understand
 from .state import ResearchState
 
@@ -197,7 +234,7 @@ def build_graph():
     # What can run.
     builder.add_node("understand", understand)
     builder.add_node("search", search)
-    builder.add_node("summarize", summarize)
+    builder.add_node("summarize", wrap_with_hooks(summarize, pre=pre_summarize, post=post_summarize))
     builder.add_node("evaluate", evaluate)
 
     # What runs after what. (Module 5 replaces the last edge with a conditional one.)
@@ -247,6 +284,8 @@ if __name__ == "__main__":
 - No checkpointer on `compile()` yet — added in Module 5's *Persistence* sub-topic.
 
 ## Concepts Covered (cont.)
+- Module 4.1 > Hooks — paid the anatomy-table debt: the "Hooks & Transitions" row had "edges" for transitions but left hooks unexplained. **Hooks = structured intercept points that fire around a node, in-process, in plain Python.** Two types: `pre_model_hook(state) -> state` runs BEFORE the node (can modify what the node sees); `post_model_hook(state) -> state` runs AFTER (for observation and side effects). Flow: `Input → [pre-hook] → Node (LLM/tool) → [post-hook] → Output`. Two wiring patterns: (1) **manual wrapper** for custom `StateGraph` — `wrap_with_hooks(node_fn, pre, post)` composes pre → node → post inside one registered function; pre-hook return IS used (modifies node input); post-hook return is ignored (observation-only in this pattern — wrapped returns `result`, not post-hook return); (2) **`create_react_agent` kwargs** — pass `pre_model_hook=` and `post_model_hook=` as kwargs, LangGraph calls them around every LLM step; post-hook CAN return a propagating partial update in this mode (covered next sub-topic). Source showed `graph.add_pre_model_hook()` / `builder.add_post_model_hook()` on `StateGraph` — these do not exist; hook kwargs belong to `create_react_agent`; source's actual working code used Pattern 1 correctly. Node.js/Express analogy: same shape (`req → middleware → handler → middleware → res`) but hooks operate on the full typed state dict, not HTTP objects. Project extended with `hooks.py` (`pre_summarize`, `post_summarize`, `wrap_with_hooks`) and `graph.py` updated to wrap the `summarize` node — `nodes.py` unchanged, which is the point. `hooks.py` detail: post-hook receives `{**state, **result}` (merged) so it can see the node's output; wrapper returns `result` so LangGraph reducer logic is unaffected.
+
 - Module 3 > Getting Started with LangGraph: Building Your First AI Workflow Graph — **first code in the course; project named + scaffolded here.** Sub-topic *"What are Agents?"* compressed hard against Module 1 (it restates agent-as-LLM-defined-control-flow). **`Agent = LLM + Tools + Reasoning Loop + State`** — taught as four load-bearing terms, each with what breaks if dropped (LLM→hard-coded script · Tools→chatbot that can only talk · Loop→one-shot answer · State→amnesia). **The exit-condition contrast is the core framing:** a plain LLM call stops when *the text ran out*; an agent stops when *the goal was met* — and that single difference is what multi-step reasoning / error recovery / tool calls / long-running work / autonomous decisions all reduce to (one feature, four angles, not five bullets). Loop beats: `Reason → Act → Observe → Loop`. Flight-booking example ("cheapest flight to Dubai next Friday, notify on WhatsApp") used to make it concrete — **steps "compare prices" and "select an option" are decisions made after seeing data that didn't exist at request time**, which is why they couldn't be pre-written. Six characteristics (Autonomy · Reasoning · Tool Use · Memory · Modularity · Adaptability) taught as a table with a **cost column added** (unpredictability · latency+tokens · real side effects · storage+context pressure · interface to maintain · behaviour drift) and the point landed that *the cost column is the reason LangGraph exists* — every mechanism in the course buys a benefit while capping its cost.
   **The module's real payload = the Anatomy → LangGraph mapping table:** LLM Core → inside a node body (LangGraph never calls a model itself) · Prompt Template → inside a node body, `ChatPromptTemplate`/LCEL · Memory Module → a state channel (short-term) **+** checkpointer/store (long-term) · Toolset → nodes running tools, `@tool` wrapped or prebuilt `ToolNode` · State → the `TypedDict` passed to `StateGraph(...)` · Hooks & Transitions → edges + conditional edges. Three call-outs: the top two rows **are LangChain, not LangGraph** (2a's "LangChain inside a node" cashed in); "Memory Module" secretly covers two different things and that's where the short/long-term conflation starts; **Hooks & Transitions is the only row with no LangChain equivalent — which is why it gets its own module (4)**. "Why agents matter in LangGraph" (4 source claims) collapsed into an *agents-need-X → LangGraph-gives-X* table pointing back at 2b, whose real value is naming the **four node roles: planner / retriever / executor / evaluator** — the skeleton of nearly every agent graph.
   **Source correction made honestly:** the course's Research Assistant diagram (User Query → Planner → Search Tool → Summarizer → Evaluator → Result) has every arrow pointing down — **it is a chain, not an agent**; if the Evaluator finds only 1 source it has nowhere to send the work. Drew the version with the `evaluate → search` backward edge as what we're actually building toward, and framed v0.1 as deliberately shipping the straight line so mechanics land before branching.
@@ -269,7 +308,7 @@ it to be **re-taught simply** — not summarized. Read this as: *you are re-auth
 - End each lesson with a **short self-check list** of questions the learner should be able to answer.
 
 ## Next Up
-**Module 4 — Prebuilt Agents in LangGraph** (1h): *Hooks* (30m) · *langgraph-prebuilt* (15m) · *langgraph-supervisor* (15m).
+**Module 4.2 — langgraph-prebuilt** (15m): `create_react_agent` — the black box opened. Same four node roles (planner/retriever/executor/evaluator) wired into a loop by someone else. Use the real `pre_model_hook`/`post_model_hook` kwargs API. Project reaches v0.2: rebuild the Research Assistant as a prebuilt agent side-by-side with the hand-built v0.1+hooks.
 
 Angle to take: the learner used `create_react_agent` as a **black box** in LangChain Module 8, and has now hand-built a `StateGraph` in Module 3. So teach Module 4 as **"here's what was actually running"** — the same four node roles (planner/retriever/executor/evaluator) wired into a loop by someone else — not as a new tool. 2b already set this up with the `StateGraph` vs `AgentExecutor` contrast (a fixed loop you can't insert approval gates into vs. the primitives that loop is built from); land the payoff, don't re-argue it.
 

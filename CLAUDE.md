@@ -60,7 +60,7 @@
 
 | Sub-Topic | Duration | Status |
 |-----------|----------|--------|
-| Hooks | 30m | ⬜ Not started |
+| Hooks | 30m | ✅ Done |
 | langgraph-prebuilt | 15m | ⬜ Not started |
 | langgraph-supervisor | 15m | ⬜ Not started |
 
@@ -89,9 +89,9 @@
 ---
 
 ## Current Topic
-**Modules 1–3 complete — concepts built, first graph running.** Next: **Module 4 — Prebuilt Agents in LangGraph** (1h): Hooks · `langgraph-prebuilt` · `langgraph-supervisor`.
+**Module 4 in progress — Hooks done.** Next: **Module 4.2 — langgraph-prebuilt** (15m): open the `create_react_agent` black box, use the real hook kwargs API, project reaches v0.2 (prebuilt agent side-by-side with hand-built v0.1+hooks).
 
-Teach Module 4 as **"here's what was actually running"** — the learner used `create_react_agent` as a black box in the LangChain course and has now hand-wired a `StateGraph`, so the prebuilt agent is the same four node roles (planner/retriever/executor/evaluator) looped for you. **Hooks is the sub-topic to spend the time on**: Module 3's anatomy table left "Hooks & Transitions" as the only row with no LangChain equivalent and explicitly promised Module 4 would fill it in. Project reaches **v0.2** — same Research Assistant job rebuilt with a prebuilt agent + hooks, side by side with hand-built v0.1, so "less code vs. less control" is concrete.
+Teach as **"here's what was actually running"** — the learner used `create_react_agent` as a black box in the LangChain course and has now hand-wired a `StateGraph`, so the prebuilt agent is the same four node roles (planner/retriever/executor/evaluator) looped for you. The hook kwargs (`pre_model_hook`, `post_model_hook`) are the API surface that pays off what Pattern 1 (wrapper) demonstrated in 4.1. Project reaches **v0.2** — same Research Assistant job rebuilt with a prebuilt agent + hooks, side by side with hand-built v0.1+hooks, so "less code vs. less control" is concrete.
 
 ---
 
