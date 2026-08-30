@@ -18,7 +18,7 @@
 | 1 | The Rise of Agentic Workflows and the Emergence of LangGraph | 2h 15m | ✅ Done | 01-module1-rise-of-agentic-workflows.md |
 | 2 | LangGraph Architecture and Ecosystem | 45m | ✅ Done | 02a-langgraph-in-the-langchain-ecosystem.md · 02b-langgraph-architecture.md |
 | 3 | Getting Started with LangGraph: Building Your First AI Workflow Graph | 30m | ✅ Done | 03-getting-started-first-workflow-graph.md |
-| 4 | Prebuilt Agents in LangGraph | 1h | ⬜ Not started | See sub-topics below |
+| 4 | Prebuilt Agents in LangGraph | 1h | ✅ Done | 04a-hooks.md · 04b-langgraph-prebuilt.md · 04c-langgraph-supervisor.md |
 | 5 | Designing Custom Workflows with LangGraph | 4h 20m | ⬜ Not started | See sub-topics below |
 | 6 | Dynamic AI Graphs: Combining Subgraphs and Streaming | 1h 30m | ⬜ Not started | See sub-topics below |
 
@@ -62,7 +62,7 @@
 |-----------|----------|--------|
 | Hooks | 30m | ✅ Done |
 | langgraph-prebuilt | 15m | ✅ Done |
-| langgraph-supervisor | 15m | ⬜ Not started |
+| langgraph-supervisor | 15m | ✅ Done |
 
 ### Module 5 Sub-Topics — Designing Custom Workflows with LangGraph
 *4h 20m · 7 Web Modules — the core module of the course*
@@ -89,7 +89,7 @@
 ---
 
 ## Current Topic
-**Module 4 in progress — Hooks + langgraph-prebuilt done.** Next: **Module 4.3 — langgraph-supervisor** (15m): hierarchical multi-agent. A supervisor LLM routes work to specialized sub-agents. Maps onto the "delegate" graph shape from Module 3's use-case table. Project stays at v0.2 for this sub-topic — supervisor is a new graph shape, not a Research Assistant extension.
+**Module 4 complete.** Next: **Module 5.1 — Building the Workflow** (40m): `add_conditional_edges` replaces the final `add_edge("evaluate", END)` in v0.1, making the `verdict` string a real routing decision that sends the graph back to `search` on weak sourcing. That single edge is what turns the chain into a real agent. Project grows to v0.3. All Module 4 sub-topics done: Hooks (04a) · langgraph-prebuilt (04b) · langgraph-supervisor (04c).
 
 ---
 
