@@ -1,4 +1,4 @@
-"""A stand-in for a real search tool. Module 5 swaps this for a real retriever."""
+"""A stand-in for a real search tool. Module 5's *Tool* sub-topic swaps this for a real retriever."""
 
 CORPUS = [
     {
@@ -28,11 +28,30 @@ CORPUS = [
 ]
 
 
-def search_corpus(keywords: list[str], limit: int = 3) -> list[dict]:
-    """Score every document by keyword overlap, return the best `limit` matches."""
+def search_corpus(
+    keywords: list[str],
+    limit: int = 3,
+    require_all: bool = False,
+    exclude_titles: set[str] | None = None,
+) -> list[dict]:
+    """Score every document by keyword overlap, return the best `limit` matches.
+
+    v0.3 added two parameters so the retry can ask a *different* question than the
+    first attempt did:
+
+    - `require_all=True`  → strict: a doc must match every keyword. Precise, few hits.
+    - `exclude_titles`    → don't return documents we already have in state.
+    """
+    wanted = set(keywords)
+    exclude = exclude_titles or set()
+
     scored = []
     for doc in CORPUS:
-        hits = len(set(keywords) & set(doc["tags"]))
+        if doc["title"] in exclude:
+            continue
+        hits = len(wanted & set(doc["tags"]))
+        if require_all and hits < len(wanted):
+            continue
         if hits:
             scored.append((hits, doc))
 

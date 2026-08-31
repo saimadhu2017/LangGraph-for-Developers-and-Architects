@@ -19,7 +19,7 @@
 | 2 | LangGraph Architecture and Ecosystem | 45m | ✅ Done | 02a-langgraph-in-the-langchain-ecosystem.md · 02b-langgraph-architecture.md |
 | 3 | Getting Started with LangGraph: Building Your First AI Workflow Graph | 30m | ✅ Done | 03-getting-started-first-workflow-graph.md |
 | 4 | Prebuilt Agents in LangGraph | 1h | ✅ Done | 04a-hooks.md · 04b-langgraph-prebuilt.md · 04c-langgraph-supervisor.md |
-| 5 | Designing Custom Workflows with LangGraph | 4h 20m | ⬜ Not started | See sub-topics below |
+| 5 | Designing Custom Workflows with LangGraph | 4h 20m | 🔄 In progress | 05a-building-the-workflow.md · (more below) |
 | 6 | Dynamic AI Graphs: Combining Subgraphs and Streaming | 1h 30m | ⬜ Not started | See sub-topics below |
 
 **Legend:** ⬜ Not started · 🔄 In progress · ✅ Done · ⏭️ Skipped by choice
@@ -69,7 +69,7 @@
 
 | Sub-Topic | Duration | Status |
 |-----------|----------|--------|
-| Building the Workflow | 40m | ⬜ Not started |
+| Building the Workflow | 40m | ✅ Done |
 | Persistence | 40m | ⬜ Not started |
 | Time Travel | 30m | ⬜ Not started |
 | Tool | 45m | ⬜ Not started |
@@ -89,11 +89,28 @@
 ---
 
 ## Current Topic
-**Module 4 complete.** Next: **Module 5.1 — Building the Workflow** (40m): `add_conditional_edges` replaces the final `add_edge("evaluate", END)` in v0.1, making the `verdict` string a real routing decision that sends the graph back to `search` on weak sourcing. That single edge is what turns the chain into a real agent. Project grows to v0.3. All Module 4 sub-topics done: Hooks (04a) · langgraph-prebuilt (04b) · langgraph-supervisor (04c).
+**Module 5.1 complete — the chain is now an agent.** `add_conditional_edges("evaluate", route_after_evaluate, {...})` replaced `add_edge("evaluate", END)`, and `"retry": "search"` is the backward edge. Project at **v0.3**, verified running: strict search → 3 docs → weak → retry with a broadened query → 4 docs → ok.
+
+Next: **Module 5.2 — Persistence** (40m). 5.1 set it up twice: `compile()` was taught as where features attach (`checkpointer=` / `interrupt_before=` / `store=`), and the source's fictional `CheckpointAt` API was corrected with the real one. Teach `InMemorySaver` → `SqliteSaver`/`PostgresSaver`, `thread_id`, one-checkpoint-per-super-step, `get_state` / `get_state_history`, resume-after-crash. Project → v0.4: kill the run mid-loop and resume it.
 
 ---
 
 ## Completed Topics
+
+### Module 5 — Designing Custom Workflows with LangGraph *(in progress)*
+
+**`05a-building-the-workflow.md`** — the sub-topic that turns the chain into an agent.
+- **Seven build steps** (StateGraph → nodes → entry → edges/exit → compile → visualise → run), with the call-out that steps 1–5 run **once at import time** and only step 7 is per-request — that build/run split is *why* checkpointing, visualisation and replay are possible at all
+- **State**: three payoffs (centralised context · modularity · **traceability, which Time Travel depends on**); `TypedDict` vs `dataclass` vs Pydantic with a when-to-pick table
+- **Nodes**: partial dict returns; the source's mutate-and-return-whole-state node traced through the reducer to show it **duplicates history and compounds per loop**; LCEL chain registered directly as a node; "single-purpose" reframed as *a node is the unit of retry, checkpointing, and routing*
+- **Entry/exit**: `set_entry_point`/`set_finish_point` are sugar for `START`/`END` edges; `START` can fan out; multiple exit points are normal
+- **`compile()`** taught as **where the rest of Module 5 plugs in** — `checkpointer=` / `interrupt_before=` / `store=`. Persistence is an argument to `compile()`, not something bolted onto nodes
+- **`invoke()` vs `stream()`**: chunk shape is `{node_name: update_dict}`; on a looping graph `stream()` is the only way to see a node run twice. `stream_mode` = `updates`/`values`/`messages`/`debug`
+- **THE PAYLOAD — conditional edges.** The router **is not a node** (no checkpoint, no retry, **writes to state are silently discarded**) · it returns a **label**, and the `path_map` translates · **this is where Module 1's "partial control flow definition" physically lives** — the router can pick among labels you wrote but **cannot invent a destination**, and that containment is the entire safety argument · the router may be an LLM and still be safe for the same reason
+- **The backward edge** `"retry": "search"` is the cycle, and it's where `sources`' `operator.add` reducer (written back in Module 3) finally earns its keep
+- **The brake, two mechanisms:** `recursion_limit` is a crash backstop (10007 by default in langgraph 1.2.11 — verified, not 25); the real brake is an **explicit counter in state**. Three rules: count in state not a module global · **the retry must ask a different question** · give up explicitly
+- **Five source errors corrected, all verified against langgraph 1.2.11 / langchain-core 1.6.1:** `add_node(..., function=fn)` raises `RuntimeError` (the arg is positional) · you don't need a custom `end` node returning `{}` · `Send` lives in `langgraph.types` and **there is no `Gather()`** (the reducer *is* the gather) · **`CheckpointAt` does not exist** — real API is `compile(checkpointer=...)`, and every super-step is checkpointed, you don't nominate nodes · `AIMessage(metadata=...)` only works because `BaseMessage` is `extra="allow"` — `name=` / `additional_kwargs=` are the declared slots. Also flagged: the source's Bedrock slide hard-codes a live AWS key pair
+- **Demo A** (state + annotated messages) and **Demo B** (`controller_demo.py` — LLM writes `decision` to state, router is `lambda state: state["decision"]`), with the rule **never route on raw model output**
 
 ### Module 1 — The Rise of Agentic Workflows and the Emergence of LangGraph
 All 4 sub-topics merged into `01-module1-rise-of-agentic-workflows.md` (the source material restates one idea four times).
@@ -153,13 +170,15 @@ Named and scaffolded at Module 3. Chosen because it's the smallest project that 
 | Version | Module | Adds |
 |---|---|---|
 | **v0.1** ✅ | 3 | Linear 4-node graph (`understand → search → summarize → evaluate`), typed state with an `operator.add` reducer on `sources`, one real LLM call in an LCEL chain inside a node |
-| v0.2 | 4 | Prebuilt agent + hooks — the same job the black-box way, side by side |
-| v0.3+ | 5 | The backward edge, persistence, time travel, real tools, interrupts, memory |
-| v0.4+ | 6 | Subgraphs and streaming |
+| **v0.2** ✅ | 4 | Prebuilt agent + hooks — the same job the black-box way, side by side |
+| **v0.3** ✅ | 5.1 | **The backward edge.** `route_after_evaluate` + `add_conditional_edges`; `attempts` counter with `MAX_ATTEMPTS`; retry-aware `search` that broadens the query and dedupes; `controller_demo.py` where the LLM picks the edge |
+| v0.4+ | 5.2–5.6 | Persistence, time travel, real tools, interrupts, memory |
+| v0.5+ | 6 | Subgraphs and streaming |
 
 Files are **real on disk**, not lesson-only. Run: `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
 
-**Deliberate v0.1 debts — do not "fix" them early, each is a later lesson's payload:** `evaluate` computes a verdict nobody acts on (→ Module 5 `add_conditional_edges`) · `sources` already carries its reducer a module before anything loops · `corpus.py` is a keyword-overlap stub standing in for a retriever (→ Module 5 *Tool*) · no checkpointer on `compile()` yet (→ Module 5 *Persistence*).
+**Debts remaining — do not "fix" them early, each is a later lesson's payload:** no checkpointer on `compile()` (→ 5.2 *Persistence*) · no way to inspect or rewind (→ 5.3 *Time Travel*) · `corpus.py` is a keyword-overlap stub standing in for a retriever (→ 5.4 *Tool*) · nothing pauses for human approval (→ 5.5 *Interrupts*) · nothing remembered between questions (→ 5.6 *Memory*).
+*Paid in 5.1:* the unread `verdict` became the routing decision, and `sources`' early reducer became load-bearing (under the default reducer the retry discards attempt 1 and the loop never converges).
 
 The project grows one version per topic, and its full current source lives in `start learning/_context.md`. Each lesson ends with the complete updated source so any single lesson is self-contained.
 

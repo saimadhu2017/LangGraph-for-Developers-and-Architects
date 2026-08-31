@@ -9,7 +9,8 @@ class Source(TypedDict):
 
 class ResearchState(TypedDict):
     question: str                                    # what the user asked
-    keywords: list[str]                              # what `understand` decided to look for
+    keywords: list[str]                              # OVERWRITTEN — the retry rewrites the query
     sources: Annotated[list[Source], operator.add]   # ACCUMULATES across searches
     summary: str                                     # the drafted answer
-    verdict: str                                     # evaluator's judgement
+    verdict: str                                     # evaluator's judgement — now a ROUTING input
+    attempts: Annotated[int, operator.add]           # NEW (v0.3) — how many times `search` has run
