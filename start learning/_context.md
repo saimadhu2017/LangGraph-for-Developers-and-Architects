@@ -20,7 +20,7 @@ _Named and scaffolded at Module 3. Fresh build, graph-first — the LangChain co
 
 **Version roadmap:** v0.1 Module 3 (linear 4-node graph) → v0.2 Module 4 (prebuilt agent + hooks) → **v0.3 Module 5.1 (conditional edge + retry loop) ✅** → v0.4+ rest of Module 5 (persistence, time travel, real tools, interrupts, memory) → v0.5+ Module 6 (subgraphs, streaming).
 
-### Current State (v0.3 — conditional edge + retry loop; v0.2 prebuilt agent kept side-by-side)
+### Current State (v0.4 — persistence with InMemorySaver; v0.3 loop + v0.2 prebuilt agent kept side-by-side)
 
 Files are **real on disk**, not just in the lesson. `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
 
@@ -37,8 +37,8 @@ start learning/
     ├── hooks.py              # Module 4.1 — pre_summarize, post_summarize, wrap_with_hooks
     ├── agent.py              # Module 4.2 — create_react_agent v0.2
     ├── controller_demo.py    # NEW (5.1) — LLM writes `decision`, router reads it
-    ├── graph.py              # Updated (5.1) — route_after_evaluate + add_conditional_edges
-    └── main.py               # Updated (5.1) — streams v0.3 so the loop is visible
+    ├── graph.py              # Updated (5.2) — build_graph() takes optional checkpointer=
+    └── main.py               # Updated (5.2) — run_v4() demos InMemorySaver + get_state_history
 ```
 
 **`research_assistant/state.py`**
@@ -281,7 +281,7 @@ def wrap_with_hooks(node_fn, pre=None, post=None):
     return wrapped
 ```
 
-**`research_assistant/graph.py`** (updated Module 5.1 — THE conditional edge)
+**`research_assistant/graph.py`** (updated Module 5.2 — optional checkpointer)
 ```python
 from langgraph.graph import END, START, StateGraph
 
@@ -306,7 +306,7 @@ def route_after_evaluate(state: ResearchState) -> str:
     return "retry"
 
 
-def build_graph():
+def build_graph(checkpointer=None):
     builder = StateGraph(ResearchState)
 
     # What can run.
@@ -334,7 +334,9 @@ def build_graph():
         },
     )
 
-    return builder.compile()
+    # v0.4 — optional checkpointer. None = no persistence (v0.3 behaviour).
+    # Pass InMemorySaver() for dev, SqliteSaver for production.
+    return builder.compile(checkpointer=checkpointer)
 ```
 
 **`research_assistant/agent.py`** (added Module 4.2)
@@ -549,13 +551,51 @@ def run(text: str = TEXT) -> dict:
     })
 ```
 
-**`research_assistant/main.py`** (updated Module 5.1 — streams v0.3 so the loop is visible)
+**`research_assistant/main.py`** (updated Module 5.2 — run_v4() demos InMemorySaver + get_state_history)
 ```python
+from langgraph.checkpoint.memory import InMemorySaver
+
 from research_assistant import agent as v2
 from research_assistant import controller_demo
 from research_assistant.graph import build_graph
 
 QUESTION = "Explain LangGraph architecture using 3 reliable sources."
+
+
+def run_v4():
+    print("=" * 60)
+    print("v0.4 — InMemorySaver + thread_id (persistence)")
+    print("=" * 60)
+
+    checkpointer = InMemorySaver()
+    graph = build_graph(checkpointer=checkpointer)
+    config = {"configurable": {"thread_id": "research-001"}}
+
+    print("--- streaming run ---")
+    for step in graph.stream(
+        {"question": QUESTION, "sources": [], "attempts": 0},
+        config=config,
+    ):
+        for node, update in step.items():
+            keys = ", ".join(f"{k}={_short(v)}" for k, v in update.items())
+            print(f"  [{node}] -> {keys}")
+
+    # Latest snapshot — the final state for this thread
+    snapshot = graph.get_state(config)
+    print("\n--- final snapshot ---")
+    print("  verdict  :", snapshot.values.get("verdict"))
+    print("  attempts :", snapshot.values.get("attempts"))
+    print("  sources  :", len(snapshot.values.get("sources", [])))
+    print("  next     :", snapshot.next)   # () means graph finished cleanly
+
+    # Full checkpoint history, newest first — one row per superstep
+    print("\n--- checkpoint history (newest first) ---")
+    for snap in graph.get_state_history(config):
+        step_n = snap.metadata.get("step", "?")
+        nxt    = snap.next or ("__end__",)
+        srcs   = len(snap.values.get("sources", []))
+        att    = snap.values.get("attempts", 0)
+        print(f"  step {step_n:>2} | next={nxt} | sources={srcs} | attempts={att}")
 
 
 def run_v3():
@@ -565,7 +605,6 @@ def run_v3():
     graph = build_graph()
     print(graph.get_graph().draw_mermaid())
 
-    # stream() shows the loop happening. invoke() would only show the destination.
     print("--- step by step ---")
     for step in graph.stream({"question": QUESTION, "sources": [], "attempts": 0}):
         for node, update in step.items():
@@ -608,6 +647,7 @@ def run_controller_demo():
 
 
 def main():
+    run_v4()
     run_v3()
     run_v2()
     run_controller_demo()
@@ -619,10 +659,12 @@ if __name__ == "__main__":
 
 **Verified v0.3 run:** 2 attempts. Strict pass → 3 docs → `weak — only 3 source(s), wanted 4` → router returns `"retry"` → broadened query (2 keywords → 8) → `Checkpointing Guide` appended → 4 docs → `ok — 4 sources` → `"done"` → END. All three reducer behaviours visible in the two `search` steps: `keywords` overwritten, `sources` appended, `attempts` summed. Module 4.1's hooks fire twice, `hooks.py` unchanged.
 
+**Verified v0.4 run:** `run_v4()` runs with `InMemorySaver` + `thread_id="research-001"`. `get_state(config)` returns the final `StateSnapshot` with `next=()`. `get_state_history(config)` yields one snapshot per superstep (8 rows for a 2-attempt run). `build_graph(checkpointer=None)` is backward-compatible — `run_v3()` still works unchanged.
+
 **Debts remaining, to be paid in later sub-topics — do not "fix" them early:**
 - ~~`evaluate` computes a verdict nobody acts on~~ — **PAID in 5.1.** `route_after_evaluate` + `add_conditional_edges` turned it into the backward edge.
 - ~~`sources` carries `operator.add` before anything loops~~ — **PAID in 5.1.** The loop now depends on it; under the default reducer the retry would discard attempt 1 and never converge.
-- No checkpointer on `compile()` yet — every run starts from scratch, a crash loses everything → **5.2 Persistence**.
+- ~~No checkpointer on `compile()` yet~~ — **PAID in 5.2.** `build_graph(checkpointer=)` + `InMemorySaver` + `thread_id`; `get_state` / `get_state_history` demonstrated.
 - No way to inspect or rewind to an earlier step → **5.3 Time Travel**.
 - `corpus.py` is still a keyword-overlap stub standing in for a retriever → **5.4 Tool**.
 - Nothing pauses for a human to approve citations → **5.5 Interrupts**.
@@ -646,6 +688,8 @@ if __name__ == "__main__":
   **Source correction made honestly:** the course's Research Assistant diagram (User Query → Planner → Search Tool → Summarizer → Evaluator → Result) has every arrow pointing down — **it is a chain, not an agent**; if the Evaluator finds only 1 source it has nowhere to send the work. Drew the version with the `evaluate → search` backward edge as what we're actually building toward, and framed v0.1 as deliberately shipping the straight line so mechanics land before branching.
   **Hands-on, taught in two steps.** (1) A no-LLM "hello graph" (`CounterState`, `double`/`describe`) to prove the machinery, with the four first-graph gotchas: nodes return **partial updates** (returning full state is the classic beginner habit) · **nodes never call each other, the edge knows** (the indirection that makes nodes swappable) · **`START`/`END` are real nodes** — `add_edge(START, x)` is what sets the entry point, there's no implicit first-node-wins · **`compile()` is a real validation step**, catches unreachable nodes/bad edge targets/no path from START, and is also where checkpointers attach later. LCEL contrast made explicit: **`a | b` fuses "what runs" with "what runs next"; `add_node` + `add_edge` split them** — two lines now buys cycles later. (2) Project v0.1. **Visualisation: `graph.get_graph().draw_mermaid()`** returns Mermaid text with zero extra deps (`draw_mermaid_png()` needs a renderer) — an architecture diagram that *cannot drift from the code because it is the code*; this is the real tool 2b's `networkx` snippet was only miming. Two `invoke` details taught before they bite: **`TypedDict` isn't runtime-enforced** so keys no node has written simply don't exist → use `state.get(k, default)`; and **seed reducer channels explicitly** (`"sources": []`). Five use cases (customer support · enterprise knowledge retrieval · research assistance · workflow automation · education/tutoring) taught via a graph-shape column, landing: **five domains, ~four shapes — route / loop / delegate / remember** — which is why the course teaches the graph, not a catalogue of agents. Closed with a first-graph mistakes table (KeyError → `.get()` · state resetting → full-state return or missing reducer · never terminates → no edge to END · unreachable node → forgot `add_edge(START, ...)` · parallel unreduced writes raise **by design**).
 
+- Module 5.2 > Persistence — **the mechanism that makes every other Module 5 feature possible.** Framed against v0.3's silent problem: a crash between supersteps 4 and 5 throws away attempt 1's three documents. **Checkpointer** writes full state to storage at the end of every superstep (the Pregel barrier — not per-node; per-superstep because that is the only consistent moment). Each saved snapshot is a **`StateSnapshot`**: five fields — `values` (the state dict) · `next` (nodes queued to run next, empty tuple at END) · `config` · `metadata` (step number, source, writes) · `tasks` (what ran, error info if step failed). **Thread** = named container of checkpoints; all invocations with the same `thread_id` share a checkpoint history; one thread = one conversation or task instance. Three checkpointer implementations: `InMemorySaver` (RAM, dev/test) → `SqliteSaver` (SQLite file, single-machine prod) → `PostgresSaver` (distributed prod) — all implement the same interface, switching is one import change. The **two-line mechanic**: `compile(checkpointer=...)` + `config={"configurable": {"thread_id": "..."}}` on every invoke/stream call. **Configuration vs state**: thread_id / user_id / model choice belong in `config["configurable"]`, not in the state TypedDict — they are out-of-band parameters the checkpointer reads automatically; nodes should not plumb them through state. **Reading state**: `graph.get_state(config)` returns the latest `StateSnapshot`; `graph.get_state_history(config)` is a generator yielding all snapshots newest-first — this is the raw data that Time Travel (5.3) navigates. **Single-turn (fault tolerance)** vs **multi-turn (conversational continuity)**: same mechanism, different invocation pattern; for fault tolerance re-invoke same thread_id with `{}` input; for multi-turn re-invoke same thread_id with a partial update. **The merge step on resume**: LangGraph loads checkpoint values as base state, then applies each input key's reducer against the base — default reducer overwrites (question replaces), `operator.add` accumulates (sources stack, attempts sum); keys absent from new input are unchanged. **Ephemeral state pattern**: final node resets per-turn keys before END so the next multi-turn invocation starts clean (not needed for Research Assistant since we use one thread per question). **Source corrected**: course examples show nodes mutating state in place and returning full dict — this was corrected in 5.1 (return partial dicts to avoid duplication under add reducers). Also: `MemorySaver` is a legacy alias for `InMemorySaver`, both work. **Project → v0.4**: `build_graph(checkpointer=None)` — one-line change, backward-compatible; `run_v4()` in main.py demonstrates InMemorySaver + thread_id + get_state + get_state_history.
+
 ## Teaching Style — THE JOB (learner-clarified at Module 1; applies to every lesson)
 **Rewrite the course in easy-to-learn form.** The learner found the source material boring and repetitive and asked for
 it to be **re-taught simply** — not summarized. Read this as: *you are re-authoring the course for a developer.*
@@ -663,10 +707,8 @@ it to be **re-taught simply** — not summarized. Read this as: *you are re-auth
 - End each lesson with a **short self-check list** of questions the learner should be able to answer.
 
 ## Next Up
-**Module 5.2 — Persistence** (40m). The natural next step, and 5.1 set it up twice over: `compile()` was taught as the place features attach (`checkpointer=` / `interrupt_before=` / `store=`), and the source's fictional `CheckpointAt` API was corrected with the real one. Payload to teach: `InMemorySaver` (legacy alias `MemorySaver`) → `SqliteSaver`/`PostgresSaver` for real deployments · `{"configurable": {"thread_id": ...}}` and why a thread is the unit of a conversation · **one checkpoint per super-step, not per node** (the Pregel barrier is the only consistent moment — already argued in 2b and re-stated in 5.1) · `get_state` / `get_state_history` · resume-after-crash. The v0.3 retry loop makes the value concrete: each `search` costs real work, and without a checkpointer a crash on attempt 2 throws away attempt 1.
+**Module 5.3 — Time Travel** (30m). The same checkpoint list that `get_state_history` returns, read with intent: pick any past snapshot, fork the run from that point, observe how the outcome changes. Teaches `graph.get_state_history` more deeply, `graph.update_state` (inject a state override into a thread), and re-invoking from a specific `checkpoint_id`. The v0.4 checkpoint history is the dataset — Time Travel is just navigation over it.
 
-Project → **v0.4**: `build_graph()` takes an optional checkpointer, `main.py` runs with a `thread_id`, and the run is killed mid-loop and resumed to prove it. That also sets up 5.3 *Time Travel*, which is the same checkpoint list read backwards.
-
-Remaining Module 5 order after that: Time Travel (30m) · Tool (45m, swaps `corpus.py` for a real retriever) · Interrupts (45m) · Memory (50m) · LangGraph APIs — Functional and Graph API (10m, mostly a recap of 2b's `@entrypoint`/`@task` note).
+Remaining Module 5 order after that: Tool (45m, swaps `corpus.py` for a real retriever) · Interrupts (45m) · Memory (50m) · LangGraph APIs — Functional and Graph API (10m, mostly a recap of 2b's `@entrypoint`/`@task` note).
 
 Curriculum is locked into `CLAUDE.md` from the syllabus screenshots — 6 modules, numbering final, **10h 20m of teaching content**. Prelude, Exercises, and all Quizzes are **intentionally out of scope** by the learner's choice; that accounts for the gap against the course's stated 15h 30m. Don't flag it, don't ask for more screenshots of it, don't write quiz questions unasked.

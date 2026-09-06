@@ -1,8 +1,46 @@
+from langgraph.checkpoint.memory import InMemorySaver
+
 from research_assistant import agent as v2
 from research_assistant import controller_demo
 from research_assistant.graph import build_graph
 
 QUESTION = "Explain LangGraph architecture using 3 reliable sources."
+
+
+def run_v4():
+    print("=" * 60)
+    print("v0.4 — InMemorySaver + thread_id (persistence)")
+    print("=" * 60)
+
+    checkpointer = InMemorySaver()
+    graph = build_graph(checkpointer=checkpointer)
+    config = {"configurable": {"thread_id": "research-001"}}
+
+    print("--- streaming run ---")
+    for step in graph.stream(
+        {"question": QUESTION, "sources": [], "attempts": 0},
+        config=config,
+    ):
+        for node, update in step.items():
+            keys = ", ".join(f"{k}={_short(v)}" for k, v in update.items())
+            print(f"  [{node}] -> {keys}")
+
+    # Latest snapshot — the final state for this thread
+    snapshot = graph.get_state(config)
+    print("\n--- final snapshot ---")
+    print("  verdict  :", snapshot.values.get("verdict"))
+    print("  attempts :", snapshot.values.get("attempts"))
+    print("  sources  :", len(snapshot.values.get("sources", [])))
+    print("  next     :", snapshot.next)   # () means graph finished cleanly
+
+    # Full checkpoint history, newest first — one row per superstep
+    print("\n--- checkpoint history (newest first) ---")
+    for snap in graph.get_state_history(config):
+        step_n = snap.metadata.get("step", "?")
+        nxt    = snap.next or ("__end__",)
+        srcs   = len(snap.values.get("sources", []))
+        att    = snap.values.get("attempts", 0)
+        print(f"  step {step_n:>2} | next={nxt} | sources={srcs} | attempts={att}")
 
 
 def run_v3():
@@ -12,7 +50,6 @@ def run_v3():
     graph = build_graph()
     print(graph.get_graph().draw_mermaid())
 
-    # stream() shows the loop happening. invoke() would only show the destination.
     print("--- step by step ---")
     for step in graph.stream({"question": QUESTION, "sources": [], "attempts": 0}):
         for node, update in step.items():
@@ -55,6 +92,7 @@ def run_controller_demo():
 
 
 def main():
+    run_v4()
     run_v3()
     run_v2()
     run_controller_demo()

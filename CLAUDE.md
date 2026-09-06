@@ -70,7 +70,7 @@
 | Sub-Topic | Duration | Status |
 |-----------|----------|--------|
 | Building the Workflow | 40m | ✅ Done |
-| Persistence | 40m | ⬜ Not started |
+| Persistence | 40m | ✅ Done | 05b-persistence.md |
 | Time Travel | 30m | ⬜ Not started |
 | Tool | 45m | ⬜ Not started |
 | Interrupts | 45m | ⬜ Not started |
@@ -89,9 +89,9 @@
 ---
 
 ## Current Topic
-**Module 5.1 complete — the chain is now an agent.** `add_conditional_edges("evaluate", route_after_evaluate, {...})` replaced `add_edge("evaluate", END)`, and `"retry": "search"` is the backward edge. Project at **v0.3**, verified running: strict search → 3 docs → weak → retry with a broadened query → 4 docs → ok.
+**Module 5.2 complete — state is now durable.** `build_graph(checkpointer=None)` makes the checkpointer optional and backward-compatible. `run_v4()` runs with `InMemorySaver` + `thread_id`, then calls `get_state` (latest snapshot) and `get_state_history` (one row per superstep). Project at **v0.4**, verified: 2-attempt run produces 8 checkpoints in history.
 
-Next: **Module 5.2 — Persistence** (40m). 5.1 set it up twice: `compile()` was taught as where features attach (`checkpointer=` / `interrupt_before=` / `store=`), and the source's fictional `CheckpointAt` API was corrected with the real one. Teach `InMemorySaver` → `SqliteSaver`/`PostgresSaver`, `thread_id`, one-checkpoint-per-super-step, `get_state` / `get_state_history`, resume-after-crash. Project → v0.4: kill the run mid-loop and resume it.
+Next: **Module 5.3 — Time Travel** (30m). Same checkpoint list, read with intent: pick a past snapshot, fork the run from that point. Teaches `get_state_history` more deeply, `update_state` (inject a state override), and re-invoking from a specific `checkpoint_id`. The v0.4 history is already the dataset.
 
 ---
 
@@ -172,13 +172,15 @@ Named and scaffolded at Module 3. Chosen because it's the smallest project that 
 | **v0.1** ✅ | 3 | Linear 4-node graph (`understand → search → summarize → evaluate`), typed state with an `operator.add` reducer on `sources`, one real LLM call in an LCEL chain inside a node |
 | **v0.2** ✅ | 4 | Prebuilt agent + hooks — the same job the black-box way, side by side |
 | **v0.3** ✅ | 5.1 | **The backward edge.** `route_after_evaluate` + `add_conditional_edges`; `attempts` counter with `MAX_ATTEMPTS`; retry-aware `search` that broadens the query and dedupes; `controller_demo.py` where the LLM picks the edge |
-| v0.4+ | 5.2–5.6 | Persistence, time travel, real tools, interrupts, memory |
-| v0.5+ | 6 | Subgraphs and streaming |
+| **v0.4** ✅ | 5.2 | **Persistence.** `build_graph(checkpointer=)` + `InMemorySaver` + `thread_id`; `get_state` / `get_state_history` |
+| v0.5+ | 5.3–5.6 | Time travel, real tools, interrupts, memory |
+| v0.6+ | 6 | Subgraphs and streaming |
 
 Files are **real on disk**, not lesson-only. Run: `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
 
-**Debts remaining — do not "fix" them early, each is a later lesson's payload:** no checkpointer on `compile()` (→ 5.2 *Persistence*) · no way to inspect or rewind (→ 5.3 *Time Travel*) · `corpus.py` is a keyword-overlap stub standing in for a retriever (→ 5.4 *Tool*) · nothing pauses for human approval (→ 5.5 *Interrupts*) · nothing remembered between questions (→ 5.6 *Memory*).
+**Debts remaining — do not "fix" them early, each is a later lesson's payload:** no way to inspect or rewind (→ 5.3 *Time Travel*) · `corpus.py` is a keyword-overlap stub standing in for a retriever (→ 5.4 *Tool*) · nothing pauses for human approval (→ 5.5 *Interrupts*) · nothing remembered between questions (→ 5.6 *Memory*).
 *Paid in 5.1:* the unread `verdict` became the routing decision, and `sources`' early reducer became load-bearing (under the default reducer the retry discards attempt 1 and the loop never converges).
+*Paid in 5.2:* `build_graph(checkpointer=None)` + `InMemorySaver` + `thread_id`; `get_state` / `get_state_history` demonstrated.
 
 The project grows one version per topic, and its full current source lives in `start learning/_context.md`. Each lesson ends with the complete updated source so any single lesson is self-contained.
 

@@ -21,7 +21,7 @@ def route_after_evaluate(state: ResearchState) -> str:
     return "retry"
 
 
-def build_graph():
+def build_graph(checkpointer=None):
     builder = StateGraph(ResearchState)
 
     # What can run.
@@ -49,4 +49,6 @@ def build_graph():
         },
     )
 
-    return builder.compile()
+    # v0.4 — optional checkpointer. None = no persistence (v0.3 behaviour).
+    # Pass InMemorySaver() for dev, SqliteSaver for production.
+    return builder.compile(checkpointer=checkpointer)
