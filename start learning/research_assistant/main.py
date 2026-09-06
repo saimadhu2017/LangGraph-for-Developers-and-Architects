@@ -7,6 +7,76 @@ from research_assistant.graph import build_graph
 QUESTION = "Explain LangGraph architecture using 3 reliable sources."
 
 
+def run_v5_time_travel():
+    print("=" * 60)
+    print("v0.5 — Time Travel: fork from a past checkpoint")
+    print("=" * 60)
+
+    checkpointer = InMemorySaver()
+    graph = build_graph(checkpointer=checkpointer)
+    config = {"configurable": {"thread_id": "travel-demo"}}
+
+    # Step 1: original run — same 2-attempt result as v0.4
+    print("--- original run ---")
+    for step in graph.stream(
+        {"question": QUESTION, "sources": [], "attempts": 0},
+        config=config,
+    ):
+        for node_name, update in step.items():
+            keys = ", ".join(f"{k}={_short(v)}" for k, v in update.items())
+            print(f"  [{node_name}] -> {keys}")
+
+    original_final = graph.get_state(config)
+    history = list(graph.get_state_history(config))
+
+    print(f"\n--- {len(history)} checkpoints in history ---")
+    for snap in history:
+        step_n = snap.metadata.get("step", "?")
+        nxt = snap.next or ("__end__",)
+        cid = snap.config["configurable"]["checkpoint_id"][:10]
+        print(f"  step {step_n:>2} | next={nxt!s:<32} | id={cid}...")
+
+    # Step 2: find the fork point — earliest checkpoint where next contains "search"
+    # reversed(history) = oldest-first; first match = after 'understand', before first 'search'
+    fork_snap = next(
+        (s for s in reversed(history) if "search" in s.next),
+        None,
+    )
+    if not fork_snap:
+        print("No fork point found.")
+        return
+
+    print(f"\n--- fork point: step {fork_snap.metadata.get('step')} ---")
+    print(f"  original keywords : {fork_snap.values.get('keywords')}")
+    print(f"  next              : {fork_snap.next}")
+
+    # Step 3: time travel — inject new keywords, re-run from fork point
+    # Simulates the user clarifying "I meant checkpointing and state, not general architecture"
+    new_keywords = ["checkpointing", "persistence", "state", "channels", "reducers"]
+    print(f"\n--- time travel: injecting keywords {new_keywords} ---")
+
+    # update_state writes a new checkpoint on top of fork_snap; returns its config
+    travel_config = graph.update_state(
+        fork_snap.config,
+        {"keywords": new_keywords},
+        as_node="understand",  # edges from 'understand' determine next → ("search",)
+    )
+    travel_final = graph.invoke(None, config=travel_config)
+
+    # Step 4: compare outcomes — different keywords → different docs found
+    print("\n--- comparison ---")
+    orig_srcs = original_final.values.get("sources", [])
+    trav_srcs = travel_final.get("sources", [])
+    print(f"  original    : {len(orig_srcs)} source(s) | {original_final.values.get('verdict')}")
+    print(f"  time-travel : {len(trav_srcs)} source(s) | {travel_final.get('verdict')}")
+    print("\n  original sources:")
+    for s in orig_srcs:
+        print(f"    - {s['title']}")
+    print("\n  time-travel sources:")
+    for s in trav_srcs:
+        print(f"    - {s['title']}")
+
+
 def run_v4():
     print("=" * 60)
     print("v0.4 — InMemorySaver + thread_id (persistence)")
@@ -92,6 +162,7 @@ def run_controller_demo():
 
 
 def main():
+    run_v5_time_travel()
     run_v4()
     run_v3()
     run_v2()

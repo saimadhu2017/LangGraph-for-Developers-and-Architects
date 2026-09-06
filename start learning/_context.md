@@ -18,9 +18,9 @@ LCEL + `|` pipe operator · Runnables (`RunnableLambda`, `RunnableMap`) · `Chat
 ## Running Project: Research Assistant (`start learning/research_assistant/`)
 _Named and scaffolded at Module 3. Fresh build, graph-first — the LangChain course's Developer Documentation Assistant is not carried over. Chosen because it is the smallest project that genuinely needs **every** mechanism in the syllabus: a loop (re-search on weak sourcing), a tool (search), accumulating state (sources), a checkpoint (searches are slow), and an interrupt (human approves citations)._
 
-**Version roadmap:** v0.1 Module 3 (linear 4-node graph) → v0.2 Module 4 (prebuilt agent + hooks) → **v0.3 Module 5.1 (conditional edge + retry loop) ✅** → v0.4+ rest of Module 5 (persistence, time travel, real tools, interrupts, memory) → v0.5+ Module 6 (subgraphs, streaming).
+**Version roadmap:** v0.1 Module 3 (linear 4-node graph) → v0.2 Module 4 (prebuilt agent + hooks) → v0.3 Module 5.1 (conditional edge + retry loop) → v0.4 Module 5.2 (persistence) → **v0.5 Module 5.3 (time travel) ✅** → v0.6+ rest of Module 5 (real tools, interrupts, memory) → v0.7+ Module 6 (subgraphs, streaming).
 
-### Current State (v0.4 — persistence with InMemorySaver; v0.3 loop + v0.2 prebuilt agent kept side-by-side)
+### Current State (v0.5 — time travel with update_state; v0.4 persistence + v0.3 loop + v0.2 prebuilt agent kept side-by-side)
 
 Files are **real on disk**, not just in the lesson. `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
 
@@ -38,7 +38,7 @@ start learning/
     ├── agent.py              # Module 4.2 — create_react_agent v0.2
     ├── controller_demo.py    # NEW (5.1) — LLM writes `decision`, router reads it
     ├── graph.py              # Updated (5.2) — build_graph() takes optional checkpointer=
-    └── main.py               # Updated (5.2) — run_v4() demos InMemorySaver + get_state_history
+    └── main.py               # Updated (5.3) — run_v5_time_travel() demos update_state + fork
 ```
 
 **`research_assistant/state.py`**
@@ -551,7 +551,7 @@ def run(text: str = TEXT) -> dict:
     })
 ```
 
-**`research_assistant/main.py`** (updated Module 5.2 — run_v4() demos InMemorySaver + get_state_history)
+**`research_assistant/main.py`** (updated Module 5.3 — run_v5_time_travel() demos update_state + fork from past checkpoint)
 ```python
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -560,6 +560,75 @@ from research_assistant import controller_demo
 from research_assistant.graph import build_graph
 
 QUESTION = "Explain LangGraph architecture using 3 reliable sources."
+
+
+def run_v5_time_travel():
+    print("=" * 60)
+    print("v0.5 — Time Travel: fork from a past checkpoint")
+    print("=" * 60)
+
+    checkpointer = InMemorySaver()
+    graph = build_graph(checkpointer=checkpointer)
+    config = {"configurable": {"thread_id": "travel-demo"}}
+
+    # Step 1: original run — same 2-attempt result as v0.4
+    print("--- original run ---")
+    for step in graph.stream(
+        {"question": QUESTION, "sources": [], "attempts": 0},
+        config=config,
+    ):
+        for node_name, update in step.items():
+            keys = ", ".join(f"{k}={_short(v)}" for k, v in update.items())
+            print(f"  [{node_name}] -> {keys}")
+
+    original_final = graph.get_state(config)
+    history = list(graph.get_state_history(config))
+
+    print(f"\n--- {len(history)} checkpoints in history ---")
+    for snap in history:
+        step_n = snap.metadata.get("step", "?")
+        nxt = snap.next or ("__end__",)
+        cid = snap.config["configurable"]["checkpoint_id"][:10]
+        print(f"  step {step_n:>2} | next={nxt!s:<32} | id={cid}...")
+
+    # Step 2: find the fork point — earliest checkpoint where next contains "search"
+    # reversed(history) = oldest-first; first match = after 'understand', before first 'search'
+    fork_snap = next(
+        (s for s in reversed(history) if "search" in s.next),
+        None,
+    )
+    if not fork_snap:
+        print("No fork point found.")
+        return
+
+    print(f"\n--- fork point: step {fork_snap.metadata.get('step')} ---")
+    print(f"  original keywords : {fork_snap.values.get('keywords')}")
+    print(f"  next              : {fork_snap.next}")
+
+    # Step 3: time travel — inject new keywords, re-run from fork point
+    new_keywords = ["checkpointing", "persistence", "state", "channels", "reducers"]
+    print(f"\n--- time travel: injecting keywords {new_keywords} ---")
+
+    # update_state writes a new checkpoint on top of fork_snap; returns its config
+    travel_config = graph.update_state(
+        fork_snap.config,
+        {"keywords": new_keywords},
+        as_node="understand",  # edges from 'understand' determine next → ("search",)
+    )
+    travel_final = graph.invoke(None, config=travel_config)
+
+    # Step 4: compare outcomes — different keywords → different docs found
+    print("\n--- comparison ---")
+    orig_srcs = original_final.values.get("sources", [])
+    trav_srcs = travel_final.get("sources", [])
+    print(f"  original    : {len(orig_srcs)} source(s) | {original_final.values.get('verdict')}")
+    print(f"  time-travel : {len(trav_srcs)} source(s) | {travel_final.get('verdict')}")
+    print("\n  original sources:")
+    for s in orig_srcs:
+        print(f"    - {s['title']}")
+    print("\n  time-travel sources:")
+    for s in trav_srcs:
+        print(f"    - {s['title']}")
 
 
 def run_v4():
@@ -647,6 +716,7 @@ def run_controller_demo():
 
 
 def main():
+    run_v5_time_travel()
     run_v4()
     run_v3()
     run_v2()
@@ -661,11 +731,13 @@ if __name__ == "__main__":
 
 **Verified v0.4 run:** `run_v4()` runs with `InMemorySaver` + `thread_id="research-001"`. `get_state(config)` returns the final `StateSnapshot` with `next=()`. `get_state_history(config)` yields one snapshot per superstep (8 rows for a 2-attempt run). `build_graph(checkpointer=None)` is backward-compatible — `run_v3()` still works unchanged.
 
+**Verified v0.5 run:** `run_v5_time_travel()` runs on thread `"travel-demo"`. Original run: 2 attempts, 4 sources, `ok`. Fork point: step 1, `next=("search",)`, keywords `["langgraph", "architecture"]`. `update_state` injects `["checkpointing", "persistence", "state", "channels", "reducers"]` with `as_node="understand"`. Time-travel run: 3 sources, `weak — only 3 source(s), wanted 4` (hits MAX_ATTEMPTS). Comparison shows different source sets from same graph.
+
 **Debts remaining, to be paid in later sub-topics — do not "fix" them early:**
 - ~~`evaluate` computes a verdict nobody acts on~~ — **PAID in 5.1.** `route_after_evaluate` + `add_conditional_edges` turned it into the backward edge.
 - ~~`sources` carries `operator.add` before anything loops~~ — **PAID in 5.1.** The loop now depends on it; under the default reducer the retry would discard attempt 1 and never converge.
 - ~~No checkpointer on `compile()` yet~~ — **PAID in 5.2.** `build_graph(checkpointer=)` + `InMemorySaver` + `thread_id`; `get_state` / `get_state_history` demonstrated.
-- No way to inspect or rewind to an earlier step → **5.3 Time Travel**.
+- ~~No way to inspect or rewind to an earlier step~~ — **PAID in 5.3.** `update_state(fork_snap.config, values, as_node=...)` + re-invoke from returned config; `get_state_history` read with intent to find `snap.next == ("search",)` fork point.
 - `corpus.py` is still a keyword-overlap stub standing in for a retriever → **5.4 Tool**.
 - Nothing pauses for a human to approve citations → **5.5 Interrupts**.
 - Nothing is remembered between questions → **5.6 Memory**.
@@ -688,6 +760,8 @@ if __name__ == "__main__":
   **Source correction made honestly:** the course's Research Assistant diagram (User Query → Planner → Search Tool → Summarizer → Evaluator → Result) has every arrow pointing down — **it is a chain, not an agent**; if the Evaluator finds only 1 source it has nowhere to send the work. Drew the version with the `evaluate → search` backward edge as what we're actually building toward, and framed v0.1 as deliberately shipping the straight line so mechanics land before branching.
   **Hands-on, taught in two steps.** (1) A no-LLM "hello graph" (`CounterState`, `double`/`describe`) to prove the machinery, with the four first-graph gotchas: nodes return **partial updates** (returning full state is the classic beginner habit) · **nodes never call each other, the edge knows** (the indirection that makes nodes swappable) · **`START`/`END` are real nodes** — `add_edge(START, x)` is what sets the entry point, there's no implicit first-node-wins · **`compile()` is a real validation step**, catches unreachable nodes/bad edge targets/no path from START, and is also where checkpointers attach later. LCEL contrast made explicit: **`a | b` fuses "what runs" with "what runs next"; `add_node` + `add_edge` split them** — two lines now buys cycles later. (2) Project v0.1. **Visualisation: `graph.get_graph().draw_mermaid()`** returns Mermaid text with zero extra deps (`draw_mermaid_png()` needs a renderer) — an architecture diagram that *cannot drift from the code because it is the code*; this is the real tool 2b's `networkx` snippet was only miming. Two `invoke` details taught before they bite: **`TypedDict` isn't runtime-enforced** so keys no node has written simply don't exist → use `state.get(k, default)`; and **seed reducer channels explicitly** (`"sources": []`). Five use cases (customer support · enterprise knowledge retrieval · research assistance · workflow automation · education/tutoring) taught via a graph-shape column, landing: **five domains, ~four shapes — route / loop / delegate / remember** — which is why the course teaches the graph, not a catalogue of agents. Closed with a first-graph mistakes table (KeyError → `.get()` · state resetting → full-state return or missing reducer · never terminates → no edge to END · unreachable node → forgot `add_edge(START, ...)` · parallel unreduced writes raise **by design**).
 
+- Module 5.3 > Time Travel — **`checkpoint_id` is an address; passing it back to the graph re-runs forward from that snapshot.** `get_state_history` read with intent: find `snap.next == ("search",)` — the checkpoint after `understand` ran, before first `search` ran. Three operations: (1) replay: `invoke(None, config=snap.config)` — same state, same path, same result, useful for debugging/auditing; (2) time travel: `update_state(snap.config, values, as_node="understand")` writes a new checkpoint on top of the fork point and returns its config → `invoke(None, config=returned_config)` re-runs with modified state; (3) fork model: original checkpoints stay, new branch checkpoints added to the same thread; `checkpoint_id` is the address of the branch point. `update_state` `as_node` parameter: determines which node "made" the update, which sets `next` for the new checkpoint; `as_node="understand"` → `next=("search",)` because `understand → search` is a fixed edge. Source corrected: `get_state_history` returns `StateSnapshot` objects (not tuples/dicts); source's "time travel" demo doesn't re-run nodes because `update_state` was called on a finished thread (`next=()`) — nodes only re-run if you fork from a checkpoint where `next` is non-empty. **Project → v0.5**: `run_v5_time_travel()` added to `main.py` — original run + find fork point + inject `["checkpointing", "persistence", "state", "channels", "reducers"]` via `update_state` + compare: original finds 4 docs (ok), time-travel finds 3 different docs (give_up). No other file changes.
+
 - Module 5.2 > Persistence — **the mechanism that makes every other Module 5 feature possible.** Framed against v0.3's silent problem: a crash between supersteps 4 and 5 throws away attempt 1's three documents. **Checkpointer** writes full state to storage at the end of every superstep (the Pregel barrier — not per-node; per-superstep because that is the only consistent moment). Each saved snapshot is a **`StateSnapshot`**: five fields — `values` (the state dict) · `next` (nodes queued to run next, empty tuple at END) · `config` · `metadata` (step number, source, writes) · `tasks` (what ran, error info if step failed). **Thread** = named container of checkpoints; all invocations with the same `thread_id` share a checkpoint history; one thread = one conversation or task instance. Three checkpointer implementations: `InMemorySaver` (RAM, dev/test) → `SqliteSaver` (SQLite file, single-machine prod) → `PostgresSaver` (distributed prod) — all implement the same interface, switching is one import change. The **two-line mechanic**: `compile(checkpointer=...)` + `config={"configurable": {"thread_id": "..."}}` on every invoke/stream call. **Configuration vs state**: thread_id / user_id / model choice belong in `config["configurable"]`, not in the state TypedDict — they are out-of-band parameters the checkpointer reads automatically; nodes should not plumb them through state. **Reading state**: `graph.get_state(config)` returns the latest `StateSnapshot`; `graph.get_state_history(config)` is a generator yielding all snapshots newest-first — this is the raw data that Time Travel (5.3) navigates. **Single-turn (fault tolerance)** vs **multi-turn (conversational continuity)**: same mechanism, different invocation pattern; for fault tolerance re-invoke same thread_id with `{}` input; for multi-turn re-invoke same thread_id with a partial update. **The merge step on resume**: LangGraph loads checkpoint values as base state, then applies each input key's reducer against the base — default reducer overwrites (question replaces), `operator.add` accumulates (sources stack, attempts sum); keys absent from new input are unchanged. **Ephemeral state pattern**: final node resets per-turn keys before END so the next multi-turn invocation starts clean (not needed for Research Assistant since we use one thread per question). **Source corrected**: course examples show nodes mutating state in place and returning full dict — this was corrected in 5.1 (return partial dicts to avoid duplication under add reducers). Also: `MemorySaver` is a legacy alias for `InMemorySaver`, both work. **Project → v0.4**: `build_graph(checkpointer=None)` — one-line change, backward-compatible; `run_v4()` in main.py demonstrates InMemorySaver + thread_id + get_state + get_state_history.
 
 ## Teaching Style — THE JOB (learner-clarified at Module 1; applies to every lesson)
@@ -707,8 +781,8 @@ it to be **re-taught simply** — not summarized. Read this as: *you are re-auth
 - End each lesson with a **short self-check list** of questions the learner should be able to answer.
 
 ## Next Up
-**Module 5.3 — Time Travel** (30m). The same checkpoint list that `get_state_history` returns, read with intent: pick any past snapshot, fork the run from that point, observe how the outcome changes. Teaches `graph.get_state_history` more deeply, `graph.update_state` (inject a state override into a thread), and re-invoking from a specific `checkpoint_id`. The v0.4 checkpoint history is the dataset — Time Travel is just navigation over it.
+**Module 5.4 — Tool** (45m). Swaps `corpus.py`'s keyword-overlap stub for a real LangGraph `ToolNode`. The node already exists in the graph placeholder; this lesson wires in a real retriever and teaches `ToolNode`, `@tool`, tool-calling patterns, and `tools_condition`. The project will move to v0.6.
 
-Remaining Module 5 order after that: Tool (45m, swaps `corpus.py` for a real retriever) · Interrupts (45m) · Memory (50m) · LangGraph APIs — Functional and Graph API (10m, mostly a recap of 2b's `@entrypoint`/`@task` note).
+Remaining Module 5 order after that: Interrupts (45m) · Memory (50m) · LangGraph APIs — Functional and Graph API (10m, mostly a recap of 2b's `@entrypoint`/`@task` note).
 
 Curriculum is locked into `CLAUDE.md` from the syllabus screenshots — 6 modules, numbering final, **10h 20m of teaching content**. Prelude, Exercises, and all Quizzes are **intentionally out of scope** by the learner's choice; that accounts for the gap against the course's stated 15h 30m. Don't flag it, don't ask for more screenshots of it, don't write quiz questions unasked.

@@ -71,7 +71,7 @@
 |-----------|----------|--------|
 | Building the Workflow | 40m | ✅ Done |
 | Persistence | 40m | ✅ Done | 05b-persistence.md |
-| Time Travel | 30m | ⬜ Not started |
+| Time Travel | 30m | ✅ Done | 05c-time-travel.md |
 | Tool | 45m | ⬜ Not started |
 | Interrupts | 45m | ⬜ Not started |
 | Memory | 50m | ⬜ Not started |
@@ -89,9 +89,9 @@
 ---
 
 ## Current Topic
-**Module 5.2 complete — state is now durable.** `build_graph(checkpointer=None)` makes the checkpointer optional and backward-compatible. `run_v4()` runs with `InMemorySaver` + `thread_id`, then calls `get_state` (latest snapshot) and `get_state_history` (one row per superstep). Project at **v0.4**, verified: 2-attempt run produces 8 checkpoints in history.
+**Module 5.3 complete — time travel wired.** `fork_snap.config` + `update_state(..., as_node="understand")` + `invoke(None, config=travel_config)` demonstrated in `run_v5_time_travel()`. Project at **v0.5**. Original run (4 docs, ok) vs time-travel fork (3 different docs, give_up) shows clearly different paths from same graph.
 
-Next: **Module 5.3 — Time Travel** (30m). Same checkpoint list, read with intent: pick a past snapshot, fork the run from that point. Teaches `get_state_history` more deeply, `update_state` (inject a state override), and re-invoking from a specific `checkpoint_id`. The v0.4 history is already the dataset.
+Next: **Module 5.4 — Tool** (45m). Swaps `corpus.py` for a real LangGraph `ToolNode` — `@tool` decorator, `ToolNode`, `tools_condition`, and real retrieval. The corpus stub was deliberately left as a debt since Module 3; this is where it gets paid.
 
 ---
 
@@ -173,8 +173,9 @@ Named and scaffolded at Module 3. Chosen because it's the smallest project that 
 | **v0.2** ✅ | 4 | Prebuilt agent + hooks — the same job the black-box way, side by side |
 | **v0.3** ✅ | 5.1 | **The backward edge.** `route_after_evaluate` + `add_conditional_edges`; `attempts` counter with `MAX_ATTEMPTS`; retry-aware `search` that broadens the query and dedupes; `controller_demo.py` where the LLM picks the edge |
 | **v0.4** ✅ | 5.2 | **Persistence.** `build_graph(checkpointer=)` + `InMemorySaver` + `thread_id`; `get_state` / `get_state_history` |
-| v0.5+ | 5.3–5.6 | Time travel, real tools, interrupts, memory |
-| v0.6+ | 6 | Subgraphs and streaming |
+| **v0.5** ✅ | 5.3 | **Time Travel.** `run_v5_time_travel()` in main.py; `update_state` + `invoke(None, config=travel_config)`; fork from post-`understand` checkpoint; compare original vs forked run |
+| v0.6+ | 5.4–5.6 | Real tools, interrupts, memory |
+| v0.7+ | 6 | Subgraphs and streaming |
 
 Files are **real on disk**, not lesson-only. Run: `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
 
