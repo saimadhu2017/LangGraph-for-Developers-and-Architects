@@ -2,11 +2,10 @@ import os
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
-from langchain_core.tools import tool
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langgraph.prebuilt import create_react_agent
 
-from .corpus import search_corpus
+from .tools import search_docs
 
 load_dotenv()
 
@@ -21,16 +20,6 @@ def _get_model():
         temperature=0.3,
     )
     return ChatHuggingFace(llm=endpoint)
-
-
-@tool
-def search_docs(query: str) -> str:
-    """Search the research corpus for documents matching the query."""
-    keywords = query.lower().split()
-    results = search_corpus(keywords)
-    if not results:
-        return "No relevant documents found."
-    return "\n\n".join(f"[{r['title']}]\n{r['text']}" for r in results)
 
 
 def _pre_hook(state: dict) -> dict | None:

@@ -18,9 +18,9 @@ LCEL + `|` pipe operator · Runnables (`RunnableLambda`, `RunnableMap`) · `Chat
 ## Running Project: Research Assistant (`start learning/research_assistant/`)
 _Named and scaffolded at Module 3. Fresh build, graph-first — the LangChain course's Developer Documentation Assistant is not carried over. Chosen because it is the smallest project that genuinely needs **every** mechanism in the syllabus: a loop (re-search on weak sourcing), a tool (search), accumulating state (sources), a checkpoint (searches are slow), and an interrupt (human approves citations)._
 
-**Version roadmap:** v0.1 Module 3 (linear 4-node graph) → v0.2 Module 4 (prebuilt agent + hooks) → v0.3 Module 5.1 (conditional edge + retry loop) → v0.4 Module 5.2 (persistence) → **v0.5 Module 5.3 (time travel) ✅** → v0.6+ rest of Module 5 (real tools, interrupts, memory) → v0.7+ Module 6 (subgraphs, streaming).
+**Version roadmap:** v0.1 Module 3 (linear 4-node graph) → v0.2 Module 4 (prebuilt agent + hooks) → v0.3 Module 5.1 (conditional edge + retry loop) → v0.4 Module 5.2 (persistence) → v0.5 Module 5.3 (time travel) → **v0.6 Module 5.4 (tools) ✅** → v0.7+ rest of Module 5 (interrupts, memory) → v0.8+ Module 6 (subgraphs, streaming).
 
-### Current State (v0.5 — time travel with update_state; v0.4 persistence + v0.3 loop + v0.2 prebuilt agent kept side-by-side)
+### Current State (v0.6 — tools: @tool search_docs in tools.py, Pattern B demo in tools_demo.py)
 
 Files are **real on disk**, not just in the lesson. `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
 
@@ -33,12 +33,14 @@ start learning/
     ├── __init__.py
     ├── state.py              # Updated (5.1) — `attempts` loop counter
     ├── corpus.py             # Updated (5.1) — require_all + exclude_titles
+    ├── tools.py              # NEW (5.4) — @tool search_docs (public tool interface)
     ├── nodes.py              # Updated (5.1) — retry-aware search, MIN_SOURCES=4, MAX_ATTEMPTS=3
     ├── hooks.py              # Module 4.1 — pre_summarize, post_summarize, wrap_with_hooks
-    ├── agent.py              # Module 4.2 — create_react_agent v0.2
+    ├── agent.py              # Updated (5.4) — imports search_docs from tools.py
     ├── controller_demo.py    # NEW (5.1) — LLM writes `decision`, router reads it
+    ├── tools_demo.py         # NEW (5.4) — Pattern B: LLM + bind_tools + ToolNode + tools_condition
     ├── graph.py              # Updated (5.2) — build_graph() takes optional checkpointer=
-    └── main.py               # Updated (5.3) — run_v5_time_travel() demos update_state + fork
+    └── main.py               # Updated (5.4) — run_tools_demo() added
 ```
 
 **`research_assistant/state.py`**
@@ -339,17 +341,37 @@ def build_graph(checkpointer=None):
     return builder.compile(checkpointer=checkpointer)
 ```
 
-**`research_assistant/agent.py`** (added Module 4.2)
+**`research_assistant/tools.py`** (NEW Module 5.4 — public tool interface)
+```python
+from langchain_core.tools import tool
+
+from .corpus import search_corpus
+
+
+@tool
+def search_docs(query: str) -> str:
+    """Search the research corpus for documents matching the query.
+
+    Returns formatted document titles and text, or a 'no results' message.
+    Use specific technical keywords for best results.
+    """
+    keywords = query.lower().split()
+    results = search_corpus(keywords)
+    if not results:
+        return "No relevant documents found."
+    return "\n\n".join(f"[{r['title']}]\n{r['text']}" for r in results)
+```
+
+**`research_assistant/agent.py`** (updated Module 5.4 — imports search_docs from tools.py)
 ```python
 import os
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
-from langchain_core.tools import tool
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langgraph.prebuilt import create_react_agent
 
-from .corpus import search_corpus
+from .tools import search_docs
 
 load_dotenv()
 
@@ -364,16 +386,6 @@ def _get_model():
         temperature=0.3,
     )
     return ChatHuggingFace(llm=endpoint)
-
-
-@tool
-def search_docs(query: str) -> str:
-    """Search the research corpus for documents matching the query."""
-    keywords = query.lower().split()
-    results = search_corpus(keywords)
-    if not results:
-        return "No relevant documents found."
-    return "\n\n".join(f"[{r['title']}]\n{r['text']}" for r in results)
 
 
 def _pre_hook(state: dict) -> dict | None:
@@ -551,7 +563,71 @@ def run(text: str = TEXT) -> dict:
     })
 ```
 
-**`research_assistant/main.py`** (updated Module 5.3 — run_v5_time_travel() demos update_state + fork from past checkpoint)
+**`research_assistant/tools_demo.py`** (NEW Module 5.4 — Pattern B demo)
+```python
+"""Module 5.4 demo — Pattern B: LLM-driven tool use via ToolNode + tools_condition."""
+import os
+from typing import Annotated, TypedDict
+
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+
+from .tools import search_docs
+
+load_dotenv()
+
+MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+
+
+class ToolDemoState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+
+def _get_model():
+    endpoint = HuggingFaceEndpoint(
+        repo_id=MODEL,
+        huggingfacehub_api_token=os.environ["HUGGINGFACEHUB_API_TOKEN"],
+        max_new_tokens=512,
+        temperature=0.3,
+    )
+    return ChatHuggingFace(llm=endpoint)
+
+
+def build_tool_demo_graph():
+    llm_with_tools = _get_model().bind_tools([search_docs])
+
+    def agent_node(state: ToolDemoState) -> dict:
+        response = llm_with_tools.invoke(state["messages"])
+        return {"messages": [response]}
+
+    tool_node = ToolNode([search_docs])
+
+    builder = StateGraph(ToolDemoState)
+    builder.add_node("agent", agent_node)
+    builder.add_node("tools", tool_node)
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges(
+        "agent",
+        tools_condition,
+        {"tools": "tools", "__end__": END},
+    )
+    builder.add_edge("tools", "agent")
+
+    return builder.compile()
+
+
+def run(question: str = "What are LangGraph's core architectural concepts?") -> dict:
+    graph = build_tool_demo_graph()
+    return graph.invoke({
+        "messages": [HumanMessage(content=question)],
+    })
+```
+
+**`research_assistant/main.py`** (updated Module 5.4 — run_tools_demo() added)
 ```python
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -715,7 +791,20 @@ def run_controller_demo():
         print(f"  {who:<11} | {_short(msg.content, 80)} | {msg.additional_kwargs}")
 
 
+def run_tools_demo():
+    print("\n" + "=" * 60)
+    print("v0.6 — Tool: Pattern B (LLM + bind_tools + ToolNode)")
+    print("=" * 60)
+    from research_assistant import tools_demo
+    result = tools_demo.run()
+    print("\n--- message thread ---")
+    for msg in result["messages"]:
+        who = getattr(msg, "name", None) or msg.__class__.__name__
+        print(f"  {who:<20} | {_short(msg.content, 80)}")
+
+
 def main():
+    run_tools_demo()
     run_v5_time_travel()
     run_v4()
     run_v3()
@@ -738,7 +827,7 @@ if __name__ == "__main__":
 - ~~`sources` carries `operator.add` before anything loops~~ — **PAID in 5.1.** The loop now depends on it; under the default reducer the retry would discard attempt 1 and never converge.
 - ~~No checkpointer on `compile()` yet~~ — **PAID in 5.2.** `build_graph(checkpointer=)` + `InMemorySaver` + `thread_id`; `get_state` / `get_state_history` demonstrated.
 - ~~No way to inspect or rewind to an earlier step~~ — **PAID in 5.3.** `update_state(fork_snap.config, values, as_node=...)` + re-invoke from returned config; `get_state_history` read with intent to find `snap.next == ("search",)` fork point.
-- `corpus.py` is still a keyword-overlap stub standing in for a retriever → **5.4 Tool**.
+- ~~`corpus.py` is still a keyword-overlap stub standing in for a retriever~~ — **PAID in 5.4.** `tools.py` added with `@tool search_docs`; `agent.py` updated to import from it; `tools_demo.py` shows Pattern B (LLM + bind_tools + ToolNode + tools_condition).
 - Nothing pauses for a human to approve citations → **5.5 Interrupts**.
 - Nothing is remembered between questions → **5.6 Memory**.
 
@@ -780,8 +869,10 @@ it to be **re-taught simply** — not summarized. Read this as: *you are re-auth
 - Tables and scannable blocks over prose walls; text diagrams over long descriptions.
 - End each lesson with a **short self-check list** of questions the learner should be able to answer.
 
+- Module 5.4 > Tool — **Two patterns for calling a tool in a custom `StateGraph`.** Framed against the corpus.py debt carried since Module 3. **What a tool is in LangGraph**: `@tool` gives a function a name, description, and typed schema the LLM can read; the docstring is prompt engineering inside the tool definition; return strings (not dicts) so ToolMessage content is LLM-readable. **Pattern A (direct call)**: node calls `tool.invoke(args)` explicitly — no LLM involved in tool selection. Right choice when the workflow already knows which tool to call and with what. The Research Assistant's `search` node is this. **Pattern B (LLM-driven via ToolNode)**: `llm.bind_tools([...])` → LLM produces `AIMessage` with `tool_calls` → `tools_condition` routes to `ToolNode` → `ToolNode` runs tools in parallel and returns `ToolMessages` → loop back to LLM. Right choice when the LLM needs to decide which tool to use. **`ToolNode` internals**: reads `state["messages"][-1].tool_calls`, dispatches each by name in parallel (one Pregel super-step), wraps results in `ToolMessage` with matching `tool_call_id`, returns `{"messages": [...]}`. Requires `messages: Annotated[list, add_messages]` in state. `handle_tool_errors=True` (default) — exceptions become ToolMessage content so the LLM can recover without graph-level error handling. **`tools_condition`**: prebuilt router from `langgraph.prebuilt`; returns `"tools"` if last message has `.tool_calls`, `"__end__"` otherwise; maps to `{"tools": tool_node, "__end__": END}` in path_map; pure router, never writes to state. **The Pattern B graph built explicitly** — same two-node loop `create_react_agent` builds internally: `START → agent → tools_condition → tools → agent → ...` with `tools → agent` being the backward edge. **Tool invocation lifecycle mapped to LangGraph**: Intent Recognition = `AIMessage` with `tool_calls` populated; Tool Selection = `tool_calls[i]["name"]`; Input Preparation = `tool_calls[i]["args"]`; Execution = `ToolNode` dispatches in parallel; Result Handling = `ToolMessage` appended to `messages`. **Three integration patterns from the source**: Single Tool Node (Pattern A, one tool always called) · Tool Router Node (Pattern B, LLM picks from multiple tools, `tools_condition` is the router) · Tool + Memory Node (tool result also written to long-term `store`, Module 5.6). **Project → v0.6**: new `tools.py` with `@tool search_docs` (moved from `agent.py`, description improved); `agent.py` imports from `tools.py`; new `tools_demo.py` shows Pattern B end-to-end; `main.py` adds `run_tools_demo()`. Main graph (`graph.py`, `nodes.py`) unchanged — Pattern A is correct when there's one tool and the workflow controls which args to pass.
+
 ## Next Up
-**Module 5.4 — Tool** (45m). Swaps `corpus.py`'s keyword-overlap stub for a real LangGraph `ToolNode`. The node already exists in the graph placeholder; this lesson wires in a real retriever and teaches `ToolNode`, `@tool`, tool-calling patterns, and `tools_condition`. The project will move to v0.6.
+**Module 5.5 — Interrupts** (45m). Pauses the graph at a node boundary for human approval before resuming. Uses `compile(interrupt_before=["node_name"])` + checkpointer + `invoke(None, config=...)` to resume. The Research Assistant will pause before summarizing so the user can approve the sources found.
 
 Remaining Module 5 order after that: Interrupts (45m) · Memory (50m) · LangGraph APIs — Functional and Graph API (10m, mostly a recap of 2b's `@entrypoint`/`@task` note).
 

@@ -161,7 +161,20 @@ def run_controller_demo():
         print(f"  {who:<11} | {_short(msg.content, 80)} | {msg.additional_kwargs}")
 
 
+def run_tools_demo():
+    print("\n" + "=" * 60)
+    print("v0.6 — Tool: Pattern B (LLM + bind_tools + ToolNode)")
+    print("=" * 60)
+    from research_assistant import tools_demo
+    result = tools_demo.run()
+    print("\n--- message thread ---")
+    for msg in result["messages"]:
+        who = getattr(msg, "name", None) or msg.__class__.__name__
+        print(f"  {who:<20} | {_short(msg.content, 80)}")
+
+
 def main():
+    run_tools_demo()
     run_v5_time_travel()
     run_v4()
     run_v3()
