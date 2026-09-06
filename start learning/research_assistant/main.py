@@ -161,6 +161,50 @@ def run_controller_demo():
         print(f"  {who:<11} | {_short(msg.content, 80)} | {msg.additional_kwargs}")
 
 
+def run_v7_interrupt():
+    print("=" * 60)
+    print("v0.7 — Interrupt: pause before summarize for source review")
+    print("=" * 60)
+
+    checkpointer = InMemorySaver()
+    graph = build_graph(
+        checkpointer=checkpointer,
+        interrupt_before=["summarize"],
+    )
+    config = {"configurable": {"thread_id": "interrupt-demo"}}
+
+    # Phase 1: run until the graph pauses before summarize
+    print("--- phase 1: searching (will pause before summarize) ---")
+    for step in graph.stream(
+        {"question": QUESTION, "sources": [], "attempts": 0},
+        config=config,
+    ):
+        for node, update in step.items():
+            keys = ", ".join(f"{k}={_short(v)}" for k, v in update.items())
+            print(f"  [{node}] -> {keys}")
+
+    snapshot = graph.get_state(config)
+    print(f"\n--- paused: next={snapshot.next} ---")
+    print("  sources ready for review:")
+    for s in snapshot.values.get("sources", []):
+        print(f"    - {s['title']}")
+
+    # Human reviews sources here. We simulate approval.
+    print("\n--- human decision: APPROVED — resuming ---")
+
+    # Phase 2: resume — None input, same config
+    for step in graph.stream(None, config=config):
+        for node, update in step.items():
+            keys = ", ".join(f"{k}={_short(v)}" for k, v in update.items())
+            print(f"  [{node}] -> {keys}")
+
+    final = graph.get_state(config)
+    print("\n--- final ---")
+    print("  verdict :", final.values.get("verdict"))
+    print("  sources :", len(final.values.get("sources", [])))
+    print("  summary :", _short(final.values.get("summary", ""), 120))
+
+
 def run_tools_demo():
     print("\n" + "=" * 60)
     print("v0.6 — Tool: Pattern B (LLM + bind_tools + ToolNode)")
@@ -174,6 +218,7 @@ def run_tools_demo():
 
 
 def main():
+    run_v7_interrupt()
     run_tools_demo()
     run_v5_time_travel()
     run_v4()

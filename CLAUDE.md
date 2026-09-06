@@ -73,7 +73,7 @@
 | Persistence | 40m | ✅ Done | 05b-persistence.md |
 | Time Travel | 30m | ✅ Done | 05c-time-travel.md |
 | Tool | 45m | ✅ Done | 05d-tool.md |
-| Interrupts | 45m | ⬜ Not started |
+| Interrupts | 45m | ✅ Done | 05e-interrupts.md |
 | Memory | 50m | ⬜ Not started |
 | LangGraph APIs — Functional and Graph API | 10m | ⬜ Not started |
 
@@ -89,9 +89,9 @@
 ---
 
 ## Current Topic
-**Module 5.4 complete — tools wired.** `@tool search_docs` in `tools.py`; `agent.py` imports from it; `tools_demo.py` shows Pattern B (LLM + bind_tools + ToolNode + tools_condition) built explicitly. Project at **v0.6**. Corpus.py debt paid — the search function now has a proper `@tool` identity usable in either pattern.
+**Module 5.5 complete — interrupts wired.** `build_graph(interrupt_before=["summarize"])` added; `run_v7_interrupt()` shows two-phase invocation: stream until paused → inspect sources → resume with `None`. Project at **v0.7**.
 
-Next: **Module 5.5 — Interrupts** (45m). `compile(interrupt_before=["summarize"])` + checkpointer + human approval before summarizing. The Research Assistant will pause so the user can review sources before the LLM drafts the answer.
+Next: **Module 5.6 — Memory** (50m). Cross-session memory via the `store` argument to `compile()`. The Research Assistant will remember facts across separate questions.
 
 ---
 
@@ -175,7 +175,8 @@ Named and scaffolded at Module 3. Chosen because it's the smallest project that 
 | **v0.4** ✅ | 5.2 | **Persistence.** `build_graph(checkpointer=)` + `InMemorySaver` + `thread_id`; `get_state` / `get_state_history` |
 | **v0.5** ✅ | 5.3 | **Time Travel.** `run_v5_time_travel()` in main.py; `update_state` + `invoke(None, config=travel_config)`; fork from post-`understand` checkpoint; compare original vs forked run |
 | **v0.6** ✅ | 5.4 | **Tools.** `tools.py` with `@tool search_docs`; `agent.py` imports from it; `tools_demo.py` shows Pattern B (LLM + bind_tools + ToolNode + tools_condition) |
-| v0.7+ | 5.5–5.6 | Interrupts, memory |
+| **v0.7** ✅ | 5.5 | **Interrupts.** `build_graph(interrupt_before=["summarize"])`; two-phase run in `run_v7_interrupt()`: stream→pause→inspect→resume |
+| v0.8+ | 5.6 | Memory |
 | v0.7+ | 6 | Subgraphs and streaming |
 
 Files are **real on disk**, not lesson-only. Run: `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.

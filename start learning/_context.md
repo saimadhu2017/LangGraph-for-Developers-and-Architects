@@ -18,9 +18,9 @@ LCEL + `|` pipe operator · Runnables (`RunnableLambda`, `RunnableMap`) · `Chat
 ## Running Project: Research Assistant (`start learning/research_assistant/`)
 _Named and scaffolded at Module 3. Fresh build, graph-first — the LangChain course's Developer Documentation Assistant is not carried over. Chosen because it is the smallest project that genuinely needs **every** mechanism in the syllabus: a loop (re-search on weak sourcing), a tool (search), accumulating state (sources), a checkpoint (searches are slow), and an interrupt (human approves citations)._
 
-**Version roadmap:** v0.1 Module 3 (linear 4-node graph) → v0.2 Module 4 (prebuilt agent + hooks) → v0.3 Module 5.1 (conditional edge + retry loop) → v0.4 Module 5.2 (persistence) → v0.5 Module 5.3 (time travel) → **v0.6 Module 5.4 (tools) ✅** → v0.7+ rest of Module 5 (interrupts, memory) → v0.8+ Module 6 (subgraphs, streaming).
+**Version roadmap:** v0.1 Module 3 (linear 4-node graph) → v0.2 Module 4 (prebuilt agent + hooks) → v0.3 Module 5.1 (conditional edge + retry loop) → v0.4 Module 5.2 (persistence) → v0.5 Module 5.3 (time travel) → v0.6 Module 5.4 (tools) → **v0.7 Module 5.5 (interrupts) ✅** → v0.8+ rest of Module 5 (memory) → v0.9+ Module 6 (subgraphs, streaming).
 
-### Current State (v0.6 — tools: @tool search_docs in tools.py, Pattern B demo in tools_demo.py)
+### Current State (v0.7 — interrupts: interrupt_before=["summarize"] in build_graph, run_v7_interrupt() in main.py)
 
 Files are **real on disk**, not just in the lesson. `pip install -r "start learning/requirements.txt"`, then `python -m research_assistant.main` from inside `start learning/`.
 
@@ -39,8 +39,8 @@ start learning/
     ├── agent.py              # Updated (5.4) — imports search_docs from tools.py
     ├── controller_demo.py    # NEW (5.1) — LLM writes `decision`, router reads it
     ├── tools_demo.py         # NEW (5.4) — Pattern B: LLM + bind_tools + ToolNode + tools_condition
-    ├── graph.py              # Updated (5.2) — build_graph() takes optional checkpointer=
-    └── main.py               # Updated (5.4) — run_tools_demo() added
+    ├── graph.py              # Updated (5.5) — build_graph() takes optional interrupt_before=
+    └── main.py               # Updated (5.5) — run_v7_interrupt() added
 ```
 
 **`research_assistant/state.py`**
@@ -283,7 +283,7 @@ def wrap_with_hooks(node_fn, pre=None, post=None):
     return wrapped
 ```
 
-**`research_assistant/graph.py`** (updated Module 5.2 — optional checkpointer)
+**`research_assistant/graph.py`** (updated Module 5.5 — optional interrupt_before)
 ```python
 from langgraph.graph import END, START, StateGraph
 
@@ -308,7 +308,7 @@ def route_after_evaluate(state: ResearchState) -> str:
     return "retry"
 
 
-def build_graph(checkpointer=None):
+def build_graph(checkpointer=None, interrupt_before=None):
     builder = StateGraph(ResearchState)
 
     # What can run.
@@ -337,8 +337,8 @@ def build_graph(checkpointer=None):
     )
 
     # v0.4 — optional checkpointer. None = no persistence (v0.3 behaviour).
-    # Pass InMemorySaver() for dev, SqliteSaver for production.
-    return builder.compile(checkpointer=checkpointer)
+    # v0.7 — optional interrupt_before. None = no interrupts (all prior versions unaffected).
+    return builder.compile(checkpointer=checkpointer, interrupt_before=interrupt_before)
 ```
 
 **`research_assistant/tools.py`** (NEW Module 5.4 — public tool interface)
@@ -791,6 +791,47 @@ def run_controller_demo():
         print(f"  {who:<11} | {_short(msg.content, 80)} | {msg.additional_kwargs}")
 
 
+def run_v7_interrupt():
+    print("=" * 60)
+    print("v0.7 — Interrupt: pause before summarize for source review")
+    print("=" * 60)
+
+    checkpointer = InMemorySaver()
+    graph = build_graph(
+        checkpointer=checkpointer,
+        interrupt_before=["summarize"],
+    )
+    config = {"configurable": {"thread_id": "interrupt-demo"}}
+
+    print("--- phase 1: searching (will pause before summarize) ---")
+    for step in graph.stream(
+        {"question": QUESTION, "sources": [], "attempts": 0},
+        config=config,
+    ):
+        for node, update in step.items():
+            keys = ", ".join(f"{k}={_short(v)}" for k, v in update.items())
+            print(f"  [{node}] -> {keys}")
+
+    snapshot = graph.get_state(config)
+    print(f"\n--- paused: next={snapshot.next} ---")
+    print("  sources ready for review:")
+    for s in snapshot.values.get("sources", []):
+        print(f"    - {s['title']}")
+
+    print("\n--- human decision: APPROVED — resuming ---")
+
+    for step in graph.stream(None, config=config):
+        for node, update in step.items():
+            keys = ", ".join(f"{k}={_short(v)}" for k, v in update.items())
+            print(f"  [{node}] -> {keys}")
+
+    final = graph.get_state(config)
+    print("\n--- final ---")
+    print("  verdict :", final.values.get("verdict"))
+    print("  sources :", len(final.values.get("sources", [])))
+    print("  summary :", _short(final.values.get("summary", ""), 120))
+
+
 def run_tools_demo():
     print("\n" + "=" * 60)
     print("v0.6 — Tool: Pattern B (LLM + bind_tools + ToolNode)")
@@ -804,6 +845,7 @@ def run_tools_demo():
 
 
 def main():
+    run_v7_interrupt()
     run_tools_demo()
     run_v5_time_travel()
     run_v4()
@@ -828,7 +870,7 @@ if __name__ == "__main__":
 - ~~No checkpointer on `compile()` yet~~ — **PAID in 5.2.** `build_graph(checkpointer=)` + `InMemorySaver` + `thread_id`; `get_state` / `get_state_history` demonstrated.
 - ~~No way to inspect or rewind to an earlier step~~ — **PAID in 5.3.** `update_state(fork_snap.config, values, as_node=...)` + re-invoke from returned config; `get_state_history` read with intent to find `snap.next == ("search",)` fork point.
 - ~~`corpus.py` is still a keyword-overlap stub standing in for a retriever~~ — **PAID in 5.4.** `tools.py` added with `@tool search_docs`; `agent.py` updated to import from it; `tools_demo.py` shows Pattern B (LLM + bind_tools + ToolNode + tools_condition).
-- Nothing pauses for a human to approve citations → **5.5 Interrupts**.
+- ~~Nothing pauses for a human to approve citations~~ — **PAID in 5.5.** `build_graph(interrupt_before=["summarize"])` + `run_v7_interrupt()`: two-phase stream → pause → inspect → resume with `None`.
 - Nothing is remembered between questions → **5.6 Memory**.
 
 ## Concepts Covered (cont.)
@@ -871,8 +913,10 @@ it to be **re-taught simply** — not summarized. Read this as: *you are re-auth
 
 - Module 5.4 > Tool — **Two patterns for calling a tool in a custom `StateGraph`.** Framed against the corpus.py debt carried since Module 3. **What a tool is in LangGraph**: `@tool` gives a function a name, description, and typed schema the LLM can read; the docstring is prompt engineering inside the tool definition; return strings (not dicts) so ToolMessage content is LLM-readable. **Pattern A (direct call)**: node calls `tool.invoke(args)` explicitly — no LLM involved in tool selection. Right choice when the workflow already knows which tool to call and with what. The Research Assistant's `search` node is this. **Pattern B (LLM-driven via ToolNode)**: `llm.bind_tools([...])` → LLM produces `AIMessage` with `tool_calls` → `tools_condition` routes to `ToolNode` → `ToolNode` runs tools in parallel and returns `ToolMessages` → loop back to LLM. Right choice when the LLM needs to decide which tool to use. **`ToolNode` internals**: reads `state["messages"][-1].tool_calls`, dispatches each by name in parallel (one Pregel super-step), wraps results in `ToolMessage` with matching `tool_call_id`, returns `{"messages": [...]}`. Requires `messages: Annotated[list, add_messages]` in state. `handle_tool_errors=True` (default) — exceptions become ToolMessage content so the LLM can recover without graph-level error handling. **`tools_condition`**: prebuilt router from `langgraph.prebuilt`; returns `"tools"` if last message has `.tool_calls`, `"__end__"` otherwise; maps to `{"tools": tool_node, "__end__": END}` in path_map; pure router, never writes to state. **The Pattern B graph built explicitly** — same two-node loop `create_react_agent` builds internally: `START → agent → tools_condition → tools → agent → ...` with `tools → agent` being the backward edge. **Tool invocation lifecycle mapped to LangGraph**: Intent Recognition = `AIMessage` with `tool_calls` populated; Tool Selection = `tool_calls[i]["name"]`; Input Preparation = `tool_calls[i]["args"]`; Execution = `ToolNode` dispatches in parallel; Result Handling = `ToolMessage` appended to `messages`. **Three integration patterns from the source**: Single Tool Node (Pattern A, one tool always called) · Tool Router Node (Pattern B, LLM picks from multiple tools, `tools_condition` is the router) · Tool + Memory Node (tool result also written to long-term `store`, Module 5.6). **Project → v0.6**: new `tools.py` with `@tool search_docs` (moved from `agent.py`, description improved); `agent.py` imports from `tools.py`; new `tools_demo.py` shows Pattern B end-to-end; `main.py` adds `run_tools_demo()`. Main graph (`graph.py`, `nodes.py`) unchanged — Pattern A is correct when there's one tool and the workflow controls which args to pass.
 
+- Module 5.5 > Interrupts — **Two ways to pause a graph for human input, and when to use each.** Framed against the approval debt: the graph runs autonomously to a final answer, but if `search` found weak sources, `summarize` confidently produces a wrong answer with no opportunity to intervene. **Requirement: checkpointer** — interrupts raise without one; the checkpointer persists full state at the pause point so resume is possible. **Approach 1 — `interrupt_before` at compile time**: zero node code changes; `compile(interrupt_before=["summarize"])` pauses the graph before that node runs; state checkpointed; `snapshot.next == ("summarize",)`; resume with `graph.invoke(None, config=config)` or inject updated state first with `update_state`. Right when the pause is structural (QA gate, compliance) not conditional. **Approach 2 — `interrupt()` inside a node** (`from langgraph.types import interrupt`): `value = interrupt(payload)` halts execution at that exact line, payloads surface in `result["__interrupt__"]` as `Interrupt` objects, resume with `graph.invoke(Command(resume=response), config=config)` where `response` becomes the return value of `interrupt()`. Right when the pause is conditional or the node needs to act on the human's response. **The re-execution gotcha**: on resume the node restarts from line 1 — any code before `interrupt()` re-runs; fix by writing expensive results to state before interrupting, or splitting work across two nodes. **`Command`** from `langgraph.types`: `Command(resume=value)` carries the human's response back to `interrupt()`; `Command(goto="node_name")` returned from a node overrides routing. **`interrupt_before` vs `interrupt_after`**: `interrupt_before` pauses before node runs (check preconditions, inject input); `interrupt_after` pauses after node runs (trigger external async, post-hoc inspection). **Four design patterns**: Approval Workflows (pause before irreversible action) · Review and Edit (human modifies LLM output) · Tool Invocation Control (interrupt inside `@tool` before it fires) · Input Validation (pause to collect/verify user input). **Project → v0.7**: `build_graph(checkpointer=None, interrupt_before=None)` — one-line addition; `run_v7_interrupt()` shows two-phase invocation: stream until `next=("summarize",)` → inspect `snapshot.values["sources"]` → resume with `None` → graph continues to completion. No node code changes.
+
 ## Next Up
-**Module 5.5 — Interrupts** (45m). Pauses the graph at a node boundary for human approval before resuming. Uses `compile(interrupt_before=["node_name"])` + checkpointer + `invoke(None, config=...)` to resume. The Research Assistant will pause before summarizing so the user can approve the sources found.
+**Module 5.6 — Memory** (50m). Cross-session memory via the `store` argument to `compile()`. The Research Assistant will remember facts across separate questions using `InMemoryStore` and namespaced key-value storage.
 
 Remaining Module 5 order after that: Interrupts (45m) · Memory (50m) · LangGraph APIs — Functional and Graph API (10m, mostly a recap of 2b's `@entrypoint`/`@task` note).
 
